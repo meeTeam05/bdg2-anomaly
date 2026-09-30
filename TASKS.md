@@ -6,6 +6,8 @@
 
 **Ý tưởng tổng quát:** Hệ thống học một mô hình Regression để biết "mức tiêu thụ năng lượng BÌNH THƯỜNG của 1 tòa nhà nên là bao nhiêu" (baseline), sau đó mô phỏng dữ liệu tòa nhà gửi liên tục qua Kafka, dùng Spark Streaming so sánh giá trị THỰC TẾ với baseline đó — nếu lệch (residual) quá ngưỡng thì cảnh báo bất thường (nghi lãng phí điện / thiết bị hỏng), hiển thị lên dashboard.
 
+> **Đọc kèm `INTEGRATION_GUIDELINES.md`** — file đó chốt chi tiết version stack (Python/Spark/Delta/Kafka), cấu trúc `config.py`, và liệt kê các điểm cả nhóm cần thống nhất thêm trước khi tích hợp. File này (`TASKS.md`) là luật chơi chung; `INTEGRATION_GUIDELINES.md` là phụ lục kỹ thuật, không thay thế.
+
 ---
 
 ## 1. Cấu trúc thư mục (mỗi người CHỈ code trong thư mục của mình)
@@ -47,34 +49,34 @@ bdg2-anomaly/
 - Ghép 3 nguồn theo `building_id` + `timestamp` + `site_id`
 - Tạo feature: `hour_of_day`, `day_of_week`, `is_weekend`
 - Làm sạch: loại giá trị âm, giá trị đứng yên bất thường (flatline), xử lý null
-**Output bắt buộc:** 1 file Parquet/Delta đúng schema ở mục 3, đặt tại `data_pipeline/output/clean_data.parquet`
-**Done khi:** Mai chạy được `train_baseline.py` trên file này không lỗi.
+**Output bắt buộc:** 1 bảng **Delta Lake** (đã chốt — không dùng Parquet thuần, vì Task 3 cần đọc lại bảng này để replay và toàn hệ thống đã dùng Delta Lake ở các bước sau, dùng 1 định dạng cho nhất quán) đúng schema ở mục 3, đặt tại `data_pipeline/output/clean_data` (thư mục Delta table, không phải file `.parquet` đơn)
+**Done khi:** Mai chạy được `train_baseline.py` trên bảng này không lỗi.
 
 ### Task 2 — ML Model (Mai)
-**Input:** `data_pipeline/output/clean_data.parquet` (từ Task 1)
+**Input:** bảng Delta `data_pipeline/output/clean_data` (từ Task 1)
 **Việc làm:**
 - Feature pipeline: StringIndexer (`primary_use`), VectorAssembler
 - Chia train/test theo thời gian (không random)
 - Train + so sánh: Linear Regression, Random Forest, GBT
 - Đánh giá RMSE/MAE, so với baseline "trung bình cộng"
-- Injected anomaly test (tiêm bất thường giả, kiểm tra ngưỡng residual)
+- **Injected anomaly test (OFFLINE, đây là việc của Mai, không trùng với Task 3):** tự tiêm 1 đoạn bất thường giả vào dữ liệu test tĩnh, chạy qua model + ngưỡng 1 lần, xem kết quả có hợp lý không — mục đích là kiểm chứng **ngưỡng residual có hoạt động đúng về mặt thống kê**, làm trên Jupyter/script, không liên quan gì đến Kafka.
 **Output bắt buộc:** model lưu tại `ml_model/models/baseline_rf/`, load được bằng `PipelineModel.load(...)`
 **Done khi:** Nguyên load được model này trong `streaming_job.py` và ra được `prediction` không lỗi.
 
 ### Task 3 — Streaming Pipeline (Nguyên)
-**Input:** `data_pipeline/output/clean_data.parquet` (để replay) + model từ Task 2
+**Input:** bảng Delta `data_pipeline/output/clean_data` (để replay) + model từ Task 2 + **hạ tầng Docker của Task 4 (xem lưu ý thứ tự ở mục 5)**
 **Việc làm:**
 - Kafka Producer: multithreading mô phỏng nhiều tòa nhà, mỗi thread gửi dữ liệu 1 tòa nhà đều đặn (2–3s/bản ghi)
-- Kịch bản: 1–2 tòa nhà tăng đột biến sau X tick (mô phỏng thiết bị hỏng)
-- Spark Structured Streaming: load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng 28%)
+- **Kịch bản tăng đột biến (LIVE DEMO, khác với injected anomaly test của Mai ở Task 2):** lập trình sẵn 1-2 tòa nhà tự tăng đột biến sau X tick khi đang chạy streaming — mục đích là **có cái để demo trực quan trước hội đồng**, không phải để kiểm chứng thống kê (việc đó Task 2 đã làm rồi)
+- Spark Structured Streaming: load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng 28%, lấy từ `config.py`, không hardcode)
 - Ghi kết quả vào Delta Lake
 **Output bắt buộc:** bảng Delta Lake tại `streaming/output/energy_results` đúng schema mục 3
 **Done khi:** Nhật đọc được bảng này và hiển thị đúng lên dashboard.
 
 ### Task 4 — Dashboard & Hạ tầng (Nhật)
-**Input:** `streaming/output/energy_results` (từ Task 3)
+**Input:** `streaming/output/energy_results` (từ Task 3, cho phần dashboard)
 **Việc làm:**
-- `docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm)
+- `docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm) — **xem mục 5, phần này phải làm và merge SỚM, không đợi đến lượt Task 4 mới bắt đầu**
 - Dashboard (Streamlit) đọc Delta Lake, tự refresh
 - Hiển thị: danh sách tòa nhà + trạng thái, biểu đồ thực tế vs baseline, log sự kiện
 **Output bắt buộc:** `docker compose up` chạy được hạ tầng; `streamlit run dashboard.py` xem được tại `localhost:8501`
@@ -110,7 +112,9 @@ bdg2-anomaly/
 | `residual` | double | `meter_reading - baseline` |
 | `is_anomaly` | boolean | `abs(residual) > baseline * 0.28` |
 
-**Ngưỡng dùng chung:** `THRESHOLD_RATIO = 0.28` — khai báo 1 chỗ duy nhất (file `config.py` ở gốc repo), Task 2 và Task 3 cùng import từ đó, không hardcode riêng mỗi nơi.
+**Ngưỡng dùng chung:** `THRESHOLD_RATIO = 0.28` — khai báo 1 chỗ duy nhất (file `config.py` ở gốc repo), Task 2 và Task 3 cùng import từ đó, không hardcode riêng mỗi nơi. Chi tiết cấu trúc `config.py` (bao gồm `CLEAN_DATA_SCHEMA`, `ENERGY_RESULTS_SCHEMA` dạng code) xem `INTEGRATION_GUIDELINES.md` mục 1.
+
+**Định dạng lưu trữ:** cả 2 bảng trên đều là **Delta Lake** (không dùng Parquet thuần) — đã chốt để tránh mơ hồ.
 
 ---
 
@@ -124,12 +128,19 @@ bdg2-anomaly/
 
 ---
 
-## 5. Thứ tự hoàn thành (không thể làm ngược)
+## 5. Thứ tự hoàn thành
+
+**Lưu ý quan trọng (đã sửa so với bản đầu):** thứ tự dưới đây nói về thứ tự **bàn giao dữ liệu/model**, KHÔNG phải thứ tự bắt đầu code. Phần hạ tầng Docker (`docker-compose.yml` — Kafka, Zookeeper, Spark) tuy nằm trong Task 4 nhưng phải được **Nhật làm và merge sớm nhất, ngay từ đầu**, vì Nguyên (Task 3) cần Kafka + Spark chạy được mới test được code streaming của mình. Nếu đợi đúng thứ tự 1→2→3→4, Nguyên sẽ bị block không cần thiết.
 
 ```
-Task 1 (Hưng) ──▶ Task 2 (Mai) ──▶ Task 3 (Nguyên) ──▶ Task 4 (Nhật)
+Ngay từ đầu (song song với Task 1):
+  Nhật ──▶ viết & merge docker-compose.yml (Kafka + Zookeeper + Spark) TRƯỚC TIÊN
+
+Thứ tự bàn giao dữ liệu/model:
+  Task 1 (Hưng) ──▶ Task 2 (Mai) ──▶ Task 3 (Nguyên) ──▶ Task 4 phần Dashboard (Nhật)
 ```
-Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người sau không phải chờ hoàn toàn — ví dụ Hưng có thể gửi trước 1 file mẫu nhỏ (100 dòng, đúng schema) để Mai code thử trong lúc Hưng hoàn thiện phần EDA đầy đủ.
+
+Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người sau không phải chờ hoàn toàn — ví dụ Hưng có thể gửi trước 1 bảng Delta mẫu nhỏ (100 dòng, đúng schema) để Mai code thử trong lúc Hưng hoàn thiện phần EDA đầy đủ. Tương tự, Nguyên có thể tự tạo 1 model giả (trả về hằng số) để code thử Streaming Job trong lúc chờ Mai train xong model thật.
 
 ---
 
@@ -162,8 +173,18 @@ Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người 
 - Không commit file dữ liệu lớn (.csv, .parquet gốc) lên Git — thêm vào `.gitignore`, chỉ commit code.
 
 ### 6.5. Môi trường chạy thống nhất
-- Cùng 1 phiên bản Python (ví dụ 3.10), cùng 1 phiên bản Spark/Kafka (ghi rõ trong `docker-compose.yml` của Task 4).
+**Version đã chốt cho cả nhóm (xem `INTEGRATION_GUIDELINES.md` để biết cách verify):**
+| Thành phần | Version |
+|---|---|
+| Python | 3.11 |
+| Java (bắt buộc cho Spark) | 17 |
+| pyspark | 4.2.0 |
+| delta-spark | 4.4.0 |
+| deltalake (Task 4 dùng để đọc, không cần Spark) | 1.6.6 |
+
+- File `requirements-spark.txt` ở gốc repo pin sẵn `pyspark==4.2.0` + `delta-spark==4.4.0` — mỗi `requirements.txt` riêng của từng task thêm dòng `-r ../requirements-spark.txt` thay vì tự ghi version khác.
 - Mỗi thư mục có file `requirements.txt` liệt kê thư viện cần cài, để người khác `pip install -r requirements.txt` là chạy được, không phải tự đoán thiếu thư viện gì.
+- **Không tự ý đổi version** trong bảng trên khi đang làm giữa chừng — nếu thấy cần đổi (ví dụ gặp bug), phải báo cả nhóm trước, vì đổi version pyspark có thể làm hỏng code của người khác.
 
 ### 6.6. Xử lý xung đột / bất đồng
 - Nếu 2 người bất đồng về kỹ thuật (ví dụ chọn model nào), quyết định bằng **số liệu** (so RMSE) chứ không quyết theo cảm tính.
