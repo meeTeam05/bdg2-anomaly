@@ -39,6 +39,23 @@ ENERGY_RESULTS_SCHEMA = [
 ]
 
 
+# Kafka (dashboard/docker-compose.yml). Host processes use KAFKA_BOOTSTRAP.
+# Keep KAFKA_TOPIC in sync with the kafka-init service in the compose file.
+KAFKA_TOPIC = "energy-readings"
+KAFKA_BOOTSTRAP = "localhost:9094"
+
+# Pacing across the three layers (Task 3 producer/Spark, Task 4 dashboard).
+PRODUCER_INTERVAL_SEC = 3
+SPARK_TRIGGER_SEC = 5
+DASHBOARD_REFRESH_SEC = 5
+
+# Task 4 dashboard.
+# Stale = no new data seen for a building within this many seconds (dashboard wall clock).
+STALE_AFTER_SEC = 30
+CHART_POINTS = 200       # latest records per building for the actual-vs-baseline chart
+EVENT_LOG_LIMIT = 100    # latest anomaly records in the event log
+
+
 def to_spark_struct_type(schema):
     """Convert a schema list above into pyspark.sql.types.StructType.
 
