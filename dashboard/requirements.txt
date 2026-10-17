@@ -1,0 +1,9 @@
+# Task 4 dashboard. Python 3.11 (see ../.python-version): uv venv --python 3.11 .venv
+# Does not need pyspark: reads Delta with delta-rs. config.py imports pyspark lazily.
+streamlit==1.66.0
+deltalake==1.6.6
+pandas==3.0.6
+pyarrow==26.0.0
+
+# tests
+pytest==9.1.1
