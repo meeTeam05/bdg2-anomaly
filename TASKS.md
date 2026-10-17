@@ -74,7 +74,7 @@ bdg2-anomaly/
 ### Task 4 — Dashboard & Hạ tầng (Nhật)
 **Input:** `streaming/output/energy_results` (từ Task 3)
 **Việc làm:**
-- `docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm)
+- `docker-compose.yml`: Kafka (KRaft, không Zookeeper) dùng chung cho cả nhóm; Spark chạy `local[*]` trên máy, không dựng container (xem `docs/adr/0001-kafka-kraft-no-spark-container.md`)
 - Dashboard (Streamlit) đọc Delta Lake, tự refresh
 - Hiển thị: danh sách tòa nhà + trạng thái, biểu đồ thực tế vs baseline, log sự kiện
 **Output bắt buộc:** `docker compose up` chạy được hạ tầng; `streamlit run dashboard.py` xem được tại `localhost:8501`
