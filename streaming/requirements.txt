@@ -1,0 +1,10 @@
+# Task 3. Spark/Delta versions come from the shared file.
+-r ../requirements-spark.txt
+confluent-kafka==2.16.0
+numpy==2.5.4                  # pyspark.ml needs it
+deltalake==1.6.6
+pyarrow==26.0.0
+tzdata==2026.5                # pyarrow needs it for UTC timestamps on Windows
+
+# tests
+pytest==9.1.1
