@@ -44,6 +44,9 @@ Mọi lệnh chạy trong thư mục `streaming/`, Kafka phải đang chạy:
 docker compose -f ../dashboard/docker-compose.yml up -d --wait
 ```
 
+> Compose file do Nhật viết, hiện nằm ở nhánh `dev/task4` (trên `main` còn rỗng). Trước khi PR đó được merge:
+> `git show origin/dev/task4:dashboard/docker-compose.yml > ../kafka-compose.yml` rồi dùng `-f ../kafka-compose.yml`.
+
 **Với dữ liệu thật** (cần Silver của Task 1 và model của Task 2):
 
 ```bash
@@ -103,6 +106,8 @@ batch 14: 24 rows (0 invalid), 11 anomalies | 2.66s, 9 rows/s | max latency 7.1s
 | `HADOOP_HOME is not set` | Windows thiếu winutils, xem mục Cài đặt |
 | `Kafka not reachable` / `Topic ... does not exist` | Chưa `docker compose up`; topic do service `kafka-init` tạo |
 | Job lỗi offset sau khi `docker compose down/up` | Kafka đã mới nhưng checkpoint còn cũ → xóa `output/` |
+| Lần chạy đầu tiên chậm | Spark tải jar Delta + Kafka về `~/.ivy2-bdg2` (cần mạng, chỉ 1 lần). Các lần sau dùng jar đã có |
+| `ClassNotFoundException` / lỗi Jackson sau khi đổi version pyspark/delta-spark | Xóa thư mục `~/.ivy2-bdg2` để tải lại jar đúng version |
 | `ERROR ShutdownHookManager: Exception while deleting Spark temp dir` lúc tắt | Lỗi vô hại trên Windows (file bị khóa), bỏ qua |
 | Dashboard thấy dữ liệu cũ | `output/` của lần chạy trước còn đó → reset như trên |
 

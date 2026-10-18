@@ -38,6 +38,12 @@ log = logging.getLogger("kafka_producer")
 SILVER_COLUMNS = [name for name, _ in CLEAN_DATA_SCHEMA]
 
 
+def parse_utc(text):
+    """'2017-01-01 00:00:00' (taken as UTC) or with an explicit offset -> aware UTC datetime."""
+    ts = datetime.fromisoformat(text)
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
 def load_site(table, site, start, hours):
     """Readings of one site in [start, start + hours), as a pyarrow Table."""
     end = start + timedelta(hours=hours)
@@ -154,7 +160,7 @@ def main():
 
     table = DeltaTable(args.silver)
     sites = sorted(args.sites or {p[PARTITION_COLUMN] for p in table.partitions()})
-    start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc)
+    start = parse_utc(args.start)
     loaded = time.time()
     site_tables = {site: load_site(table, site, start, args.hours) for site in sites}
     total = sum(t.num_rows for t in site_tables.values())

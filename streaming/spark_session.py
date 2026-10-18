@@ -17,6 +17,7 @@ DRIVER_MEMORY = "4g"
 LOOPBACK = "127.0.0.1"
 # The connector version must match pyspark exactly, otherwise Spark fails with ClassNotFound.
 KAFKA_PACKAGE = f"org.apache.spark:spark-sql-kafka-0-10_2.13:{pyspark.__version__}"
+JARS_CACHE = Path.home() / ".ivy2-bdg2"  # see with_jars()
 
 
 def build_spark(app_name):
@@ -46,6 +47,22 @@ def build_spark(app_name):
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     )
-    spark = configure_spark_with_delta_pip(builder, extra_packages=[KAFKA_PACKAGE]).getOrCreate()
+    spark = with_jars(builder).getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
     return spark
+
+
+def with_jars(builder):
+    """Add the Delta + Kafka jars.
+
+    First run: download them with spark.jars.packages into JARS_CACHE. Later runs: pass the cached
+    jars as `local:` URIs. A downloaded package is served to the local executor over Spark RPC at
+    every startup, which on Windows sometimes hangs forever; `local:` means "already on this
+    machine", so nothing is served. Delete JARS_CACHE after changing the pyspark / delta-spark version.
+    """
+    jars = sorted((JARS_CACHE / "jars").glob("*.jar"))
+    if jars:
+        # file:///C:/x.jar -> local:///C:/x.jar
+        return builder.config("spark.jars", ",".join("local:" + jar.as_uri().removeprefix("file:") for jar in jars))
+    builder = builder.config("spark.jars.ivy", str(JARS_CACHE))
+    return configure_spark_with_delta_pip(builder, extra_packages=[KAFKA_PACKAGE])

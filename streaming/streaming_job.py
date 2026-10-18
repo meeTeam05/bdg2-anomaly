@@ -131,6 +131,7 @@ def compact(spark, path):
 def monitor(spark, query, args):
     """Log every finished batch, append it to the metrics CSV, compact every N batches."""
     metrics_path = Path(args.output).parent / "batch_metrics.csv"
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)  # may run before Spark's first write
     new_file = not metrics_path.exists()
     last_batch_id = -1
     with metrics_path.open("a", newline="") as f:
