@@ -1,19 +1,21 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 .venv/
 venv/
 .ipynb_checkpoints/
 
-# Data: BDG2 raw CSVs and every Delta table (Bronze/Silver/Gold, checkpoints)
-data_pipeline/raw/
-**/output/
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+
+# All data: BDG2 raw CSVs, Delta tables (bronze/silver/gold), checkpoints, models
+data/
 *.csv
 *.parquet
-
-# Trained models (large); keep the folder itself
-ml_model/models/*
-!ml_model/models/.gitkeep
 
 # Spark / Delta local artifacts
 spark-warehouse/

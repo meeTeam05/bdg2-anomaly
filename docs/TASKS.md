@@ -8,7 +8,7 @@
 
 **Ý tưởng tổng quát:** Hệ thống học một mô hình Regression để biết "mức tiêu thụ năng lượng BÌNH THƯỜNG của 1 tòa nhà nên là bao nhiêu" (baseline), sau đó mô phỏng dữ liệu các tòa nhà gửi liên tục qua Kafka, dùng Spark Structured Streaming so sánh giá trị THỰC TẾ với baseline đó — nếu lệch (residual) quá ngưỡng thì cảnh báo bất thường (nghi lãng phí điện / thiết bị hỏng), hiển thị lên dashboard.
 
-> **Đọc kèm `docs/INTEGRATION_GUIDELINES.md`** — file đó chốt chi tiết version stack (Python/Spark/Delta/Kafka), cấu trúc `config.py`, và liệt kê các điểm cả nhóm cần thống nhất thêm trước khi tích hợp. File này (`TASKS.md`) là luật chơi chung; `INTEGRATION_GUIDELINES.md` là phụ lục kỹ thuật, không thay thế.
+> **Đọc kèm `docs/INTEGRATION_GUIDELINES.md`** — file đó chốt chi tiết version stack (Python/Spark/Delta/Kafka), cấu trúc `common/config.py`, và liệt kê các điểm cả nhóm cần thống nhất thêm trước khi tích hợp. File này (`TASKS.md`) là luật chơi chung; `INTEGRATION_GUIDELINES.md` là phụ lục kỹ thuật, không thay thế.
 
 ---
 
@@ -44,78 +44,90 @@
 
 ```
 bdg2-anomaly/
-├── data_pipeline/        ← Hưng
-│   ├── ingest.py          (CSV → Bronze)
-│   ├── eda.ipynb
-│   ├── preprocess.py      (Bronze → Silver)
+├── common/                  ← chung: package Python dùng chung
+│   ├── config.py            (đường dẫn, schema, ngưỡng — hợp đồng dữ liệu dạng code)
+│   └── spark_session.py     (build_spark(): 1 cách tạo SparkSession cho cả nhóm)
+├── data_pipeline/           ← Hưng
+│   ├── ingest.py            (CSV → Bronze)
+│   ├── preprocess.py        (Bronze → Silver)
+│   ├── tests/
 │   └── README.md
-├── ml_model/              ← Mai
+├── ml_model/                ← Mai
 │   ├── train_baseline.py
 │   ├── evaluate.py
-│   ├── models/            (model đã train, .gitignore file lớn)
+│   ├── tests/
 │   └── README.md
-├── streaming/              ← Nguyên
+├── streaming/               ← Nguyên
 │   ├── kafka_producer.py
 │   ├── streaming_job.py
+│   ├── tests/
 │   └── README.md
-├── dashboard/              ← Nhật
+├── dashboard/               ← Nhật
 │   ├── dashboard.py
-│   ├── docker-compose.yml
+│   ├── tests/
 │   └── README.md
-├── docs/                   ← chung (báo cáo, slide, đề xuất đề tài)
-├── config.py               ← chung (ngưỡng, schema)
-└── README.md               ← tổng quan cả repo
+├── infra/                   ← Nhật (dùng chung)
+│   └── docker-compose.yml
+├── notebooks/               ← notebook khám phá (eda.ipynb của Hưng)
+├── data/                    ← KHÔNG commit: raw/, bronze/, silver/, gold/, checkpoints/, models/
+├── docs/                    ← chung: TASKS.md, INTEGRATION_GUIDELINES.md, báo cáo, slide
+├── .github/workflows/ci.yml ← CI: ruff + pytest cho mỗi PR
+├── pyproject.toml           ← metadata, dependencies (extras theo task), cấu hình ruff/pytest
+├── Makefile                 ← lệnh tắt: make setup / data / lint / test / infra-up
+└── README.md                ← tổng quan cả repo
 ```
 
-**Quy tắc:** không sửa file trong thư mục của người khác. Nếu cần đổi (ví dụ đổi tên cột), phải báo trong group chat trước, vì các thư mục phụ thuộc lẫn nhau qua "hợp đồng dữ liệu" ở mục 3.
+**Nguyên tắc tách code và dữ liệu:** thư mục code (`data_pipeline/`, `ml_model/`, …) chỉ chứa code, test và README. Mọi dữ liệu, bảng Delta và model đều nằm trong `data/` (đã `.gitignore`), đường dẫn lấy từ `common/config.py`.
+
+**Quy tắc:** không sửa file trong thư mục của người khác. Nếu cần đổi (ví dụ đổi tên cột), phải báo trong group chat trước, vì các thư mục phụ thuộc lẫn nhau qua "hợp đồng dữ liệu" ở mục 3. File trong `common/`, `infra/`, `pyproject.toml` là file chung — đổi phải qua PR có ít nhất 1 người review.
 
 ---
 
 ## 2. Task chi tiết theo người
 
 ### Task 1 — Data Pipeline: Ingestion → Bronze → Silver (Hưng)
-**Input:** File gốc BDG2 (`electricity.csv`, `weather.csv`, `metadata.csv`) — **toàn bộ**, không lọc — đặt tại `data_pipeline/raw/` (không commit lên Git).
+**Input:** File gốc BDG2 (`electricity.csv`, `weather.csv`, `metadata.csv`) — **toàn bộ**, không lọc — đặt tại `data/raw/` (tải bằng `make data`, không commit lên Git).
 **Việc làm:**
-- **Ingestion (`ingest.py`):** đọc 3 file CSV bằng Spark, ghi nguyên trạng ra Delta tầng Bronze tại `data_pipeline/output/bronze/{electricity,weather,metadata}`. Không biến đổi dữ liệu ở bước này (để có thể chạy lại Silver mà không cần đọc lại CSV).
-- **EDA (`eda.ipynb`, dùng Spark):** schema, số dòng, số tòa nhà / site / loại hình (`primary_use`), tỉ lệ thiếu dữ liệu theo site và theo tòa nhà, phân phối `meter_reading`.
+- **Ingestion (`ingest.py`):** đọc 3 file CSV bằng Spark, ghi nguyên trạng ra Delta tầng Bronze tại `data/bronze/<tên file>`. Không biến đổi dữ liệu ở bước này (để có thể chạy lại Silver mà không cần đọc lại CSV).
+- **EDA (`notebooks/eda.ipynb`, dùng Spark):** schema, số dòng, số tòa nhà / site / loại hình (`primary_use`), tỉ lệ thiếu dữ liệu theo site và theo tòa nhà, phân phối `meter_reading`.
 - **Bronze → Silver (`preprocess.py`):**
   - `electricity.csv` ở dạng **wide** (mỗi tòa nhà 1 cột) → **unpivot** về dạng long (`building_id`, `timestamp`, `meter_reading`) bằng Spark (`unpivot`/`stack`).
   - Join với `metadata` theo `building_id` (lấy `site_id`, `primary_use`, `square_feet`), rồi join với `weather` theo `site_id` + `timestamp`.
   - Tạo feature: `hour_of_day`, `day_of_week`, `is_weekend`.
   - Làm sạch: loại giá trị âm, giá trị đứng yên bất thường (flatline), xử lý null (weather: nội suy/forward-fill theo site; `meter_reading` null: loại bỏ). Ghi lại số dòng bị loại ở từng bước.
   - Ghi ra Delta, **partition theo `site_id`**.
-**Output bắt buộc:** bảng Delta tầng Silver đúng schema ở mục 3, đặt tại `data_pipeline/output/clean_data` (thư mục Delta table, không phải file `.parquet` đơn), chứa **tất cả tòa nhà** qua được bước làm sạch.
+**Output bắt buộc:** bảng Delta tầng Silver đúng schema ở mục 3, đặt tại `data/silver/clean_data` (thư mục Delta table, không phải file `.parquet` đơn), chứa **tất cả tòa nhà** qua được bước làm sạch.
 **Done khi:** Mai chạy được `train_baseline.py` trên bảng này không lỗi.
 
 ### Task 2 — ML Model với Spark MLlib (Mai)
-**Input:** bảng Delta `data_pipeline/output/clean_data` (từ Task 1) — toàn bộ tòa nhà.
+**Input:** bảng Delta `data/silver/clean_data` (từ Task 1) — toàn bộ tòa nhà.
 **Việc làm:**
 - Xây **Spark MLlib `Pipeline`** gồm: `StringIndexer` (`primary_use`, `site_id`) → `VectorAssembler` → Regressor. Toàn bộ bước biến đổi feature nằm trong Pipeline để Task 3 load về là dùng được ngay, không phải viết lại.
 - Feature: thời gian (`hour_of_day`, `day_of_week`, `is_weekend`), thời tiết (`air_temperature`, `dew_temperature`), đặc trưng tòa nhà (`square_feet`, `primary_use`, `site_id`). **Không** đưa `building_id` trực tiếp làm feature (~1.600 giá trị, vượt `maxBins` của cây).
-- Chia train/test **theo thời gian** (không random): **train = năm 2016, test = năm 2017** (mốc `TEST_START` trong `config.py`). Task 3 replay đúng giai đoạn test để model không "nhìn thấy trước" dữ liệu.
+- Chia train/test **theo thời gian** (không random): **train = năm 2016, test = năm 2017** (mốc `TEST_START` trong `common/config.py`). Task 3 replay đúng giai đoạn test để model không "nhìn thấy trước" dữ liệu.
 - Train + so sánh: Linear Regression, Random Forest, GBT. Có thể thử target `log1p(meter_reading)` vì quy mô tòa nhà chênh lệch lớn.
 - Được dùng sample để dò tham số cho nhanh, nhưng **model cuối cùng phải train trên toàn bộ tập train**.
 - Đánh giá RMSE/MAE (tổng thể và theo `primary_use`), so với baseline "trung bình cộng". Chọn model tốt nhất theo RMSE.
 - **Injected anomaly test (OFFLINE, không trùng với Task 3):** tự tiêm 1 đoạn bất thường giả vào dữ liệu test tĩnh, chạy qua model + ngưỡng 1 lần, kiểm chứng **ngưỡng residual hoạt động đúng về mặt thống kê**. Kiểm tra riêng tỉ lệ báo động giả ở các tòa nhà có tiêu thụ rất nhỏ (baseline gần 0 dễ vượt ngưỡng 28%) và đề xuất cách xử lý nếu cần.
 - Ghi lại: số dòng train/test, thời gian train từng model, cấu hình Spark.
-**Output bắt buộc:** model tốt nhất lưu tại `ml_model/models/baseline_model/`, load được bằng `PipelineModel.load(...)`, input là đúng các cột của schema Silver (mục 3), output có cột `prediction` (nếu train trên `log1p` thì Task 3 phải biết để `expm1` — ghi rõ trong `ml_model/README.md`).
+**Output bắt buộc:** model tốt nhất lưu tại `data/models/baseline_model/`, load được bằng `PipelineModel.load(...)`, input là đúng các cột của schema Silver (mục 3), output có cột `prediction` (nếu train trên `log1p` thì Task 3 phải biết để `expm1` — ghi rõ trong `ml_model/README.md`).
 **Done khi:** Nguyên load được model này trong `streaming_job.py` và ra được `prediction` không lỗi.
 
 ### Task 3 — Streaming Pipeline: Kafka → Spark Structured Streaming → Gold (Nguyên)
-**Input:** bảng Delta `data_pipeline/output/clean_data` (để replay, chỉ lấy **giai đoạn test 2017**) + model từ Task 2 + **hạ tầng Docker của Task 4 (xem lưu ý thứ tự ở mục 5)**
+**Input:** bảng Delta `data/silver/clean_data` (để replay, chỉ lấy **giai đoạn test 2017**) + model từ Task 2 + **hạ tầng Docker của Task 4 (xem lưu ý thứ tự ở mục 5)**
 **Việc làm:**
 - Kafka Producer: multithreading, **mỗi thread phụ trách 1 site** (19 site), mỗi tick gửi lô bản ghi của **tất cả tòa nhà trong site đó** tại cùng 1 timestamp, đều đặn (2–3s/tick). Không tạo 1 thread cho mỗi tòa nhà (~1.600 thread là quá nhiều).
 - **Kịch bản tăng đột biến (LIVE DEMO, khác với injected anomaly test của Mai ở Task 2):** lập trình sẵn 1-2 tòa nhà tự tăng đột biến sau X tick khi đang chạy streaming — mục đích là **có cái để demo trực quan trước hội đồng**, không phải để kiểm chứng thống kê.
-- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng lấy từ `config.py`, không hardcode).
-- Ghi kết quả vào Delta tầng Gold, **partition theo `site_id`**, có checkpoint tại `streaming/output/_checkpoints/energy_results`.
+- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng lấy từ `common/config.py`, không hardcode).
+- Ghi kết quả vào Delta tầng Gold, **partition theo `site_id`**, có checkpoint tại `data/checkpoints/energy_results`.
 - Ghi lại: throughput (bản ghi/giây), độ trễ mỗi micro-batch.
-**Output bắt buộc:** bảng Delta Lake tại `streaming/output/energy_results` đúng schema mục 3
+**Output bắt buộc:** bảng Delta Lake tại `data/gold/energy_results` đúng schema mục 3
 **Done khi:** Nhật đọc được bảng này và hiển thị đúng lên dashboard.
 
 ### Task 4 — Dashboard & Hạ tầng (Nhật)
-**Input:** `streaming/output/energy_results` (từ Task 3, cho phần dashboard)
+**Input:** `data/gold/energy_results` (từ Task 3, cho phần dashboard)
 **Việc làm:**
-- `docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm) — **xem mục 5, phần này phải làm và merge SỚM, không đợi đến lượt Task 4 mới bắt đầu**. Cấp đủ RAM cho Spark để chạy được toàn bộ dataset.
+- `infra/docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm) — **xem mục 5, phần này phải làm và merge SỚM, không đợi đến lượt Task 4 mới bắt đầu**. Cấp đủ RAM cho Spark để chạy được toàn bộ dataset.
 - Dashboard (Streamlit) đọc Delta Lake, tự refresh. Vì có ~1.600 tòa nhà, dashboard phải tổ chức theo tầng:
   - **Tổng quan:** số tòa nhà đang giám sát, số bất thường theo site, throughput.
   - **Top-N tòa nhà bất thường** gần nhất.
@@ -156,18 +168,18 @@ bdg2-anomaly/
 | `residual` | double | `meter_reading - baseline` |
 | `is_anomaly` | boolean | `abs(residual) > baseline * 0.28` |
 
-**Ngưỡng dùng chung:** `THRESHOLD_RATIO = 0.28` — khai báo 1 chỗ duy nhất (file `config.py` ở gốc repo), Task 2 và Task 3 cùng import từ đó, không hardcode riêng mỗi nơi. Chi tiết cấu trúc `config.py` (bao gồm `CLEAN_DATA_SCHEMA`, `ENERGY_RESULTS_SCHEMA` dạng code) xem `docs/INTEGRATION_GUIDELINES.md` mục 1.
+**Ngưỡng dùng chung:** `THRESHOLD_RATIO = 0.28` — khai báo 1 chỗ duy nhất (file `common/config.py`), Task 2 và Task 3 cùng import từ đó, không hardcode riêng mỗi nơi. Chi tiết cấu trúc `common/config.py` (bao gồm `CLEAN_DATA_SCHEMA`, `ENERGY_RESULTS_SCHEMA` dạng code) xem `docs/INTEGRATION_GUIDELINES.md` mục 1.
 
 **Định dạng lưu trữ:** mọi bảng (Bronze, Silver, Gold) đều là **Delta Lake** (không dùng Parquet thuần).
 
-**Đường dẫn các bảng/model** — khai báo trong `config.py` (cột "Hằng số"), mọi task import từ đó, **không hardcode đường dẫn**:
+**Đường dẫn các bảng/model** — khai báo trong `common/config.py` (cột "Hằng số"), mọi task import bằng `from common.config import ...`, **không hardcode đường dẫn**:
 | Tầng | Đường dẫn | Hằng số | Ghi bởi | Đọc bởi |
 |---|---|---|---|---|
-| CSV gốc | `data_pipeline/raw/` (không commit) | `RAW_DATA_DIR` | — | Task 1 |
-| Bronze | `data_pipeline/output/bronze/{electricity,weather,metadata}` | `BRONZE_DIR` | Task 1 | Task 1 |
-| Silver | `data_pipeline/output/clean_data` | `CLEAN_DATA_PATH` | Task 1 | Task 2, Task 3 |
-| Model | `ml_model/models/baseline_model/` | `MODEL_PATH` | Task 2 | Task 3 |
-| Gold | `streaming/output/energy_results` | `ENERGY_RESULTS_PATH` | Task 3 | Task 4 |
+| CSV gốc | `data/raw/` | `RAW_DATA_DIR` | — | Task 1 |
+| Bronze | `data/bronze/<tên file>` | `BRONZE_DIR` | Task 1 | Task 1 |
+| Silver | `data/silver/clean_data` | `CLEAN_DATA_PATH` | Task 1 | Task 2, Task 3 |
+| Model | `data/models/baseline_model/` | `MODEL_PATH` | Task 2 | Task 3 |
+| Gold | `data/gold/energy_results` | `ENERGY_RESULTS_PATH` | Task 3 | Task 4 |
 
 ---
 
@@ -176,15 +188,16 @@ bdg2-anomaly/
 - Mỗi người làm việc trên 1 branch riêng: `feature/data-pipeline`, `feature/ml-model`, `feature/streaming`, `feature/dashboard`
 - Không bao giờ `push` thẳng lên `main`
 - Tạo Pull Request để 1 người khác review trước khi merge vào `main` (đúng tinh thần "test chéo" đã thống nhất)
-- Commit message rõ ràng: `[data] xử lý missing values cho weather.csv`, `[ml] thêm GBT Regressor`...
-- Trước khi bắt đầu code mỗi buổi, `git pull` từ `main` để lấy thay đổi mới nhất của người khác (đặc biệt là `config.py` và schema)
-- Không commit thư mục `output/` hay dữ liệu Delta lên Git.
+- Commit message theo dạng `[phạm vi] mô tả ngắn`, phạm vi là 1 trong: `[data]`, `[ml]`, `[streaming]`, `[dashboard]`, `[infra]`, `[common]`, `[docs]`, `[repo]`. Ví dụ: `[data] xử lý missing values cho weather.csv`, `[ml] thêm GBT Regressor`.
+- Trước khi bắt đầu code mỗi buổi, `git pull` từ `main` để lấy thay đổi mới nhất của người khác (đặc biệt là `common/config.py` và schema)
+- Không commit dữ liệu lên Git: mọi thứ trong `data/` đã được `.gitignore`; hook `check-added-large-files` chặn file > 1 MB.
+- PR chỉ được merge khi CI (ruff + pytest) xanh. Xoá branch sau khi merge.
 
 ---
 
 ## 5. Thứ tự hoàn thành
 
-**Lưu ý quan trọng:** thứ tự dưới đây nói về thứ tự **bàn giao dữ liệu/model**, KHÔNG phải thứ tự bắt đầu code. Phần hạ tầng Docker (`docker-compose.yml` — Kafka, Zookeeper, Spark) tuy nằm trong Task 4 nhưng phải được **Nhật làm và merge sớm nhất, ngay từ đầu**, vì Nguyên (Task 3) cần Kafka + Spark chạy được mới test được code streaming của mình.
+**Lưu ý quan trọng:** thứ tự dưới đây nói về thứ tự **bàn giao dữ liệu/model**, KHÔNG phải thứ tự bắt đầu code. Phần hạ tầng Docker (`infra/docker-compose.yml` — Kafka, Zookeeper, Spark) tuy nằm trong Task 4 nhưng phải được **Nhật làm và merge sớm nhất, ngay từ đầu**, vì Nguyên (Task 3) cần Kafka + Spark chạy được mới test được code streaming của mình.
 
 ```
 Ngay từ đầu (song song với Task 1):
@@ -224,10 +237,13 @@ Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người 
 - Báo ngay trong group chat nếu bị block quá 1 ngày, đừng để đến sát deadline mới nói.
 
 ### 6.4. Coding convention (thống nhất để đọc code của nhau dễ hơn)
-- Tên biến/hàm: tiếng Anh, `snake_case` (ví dụ: `clean_data`, `train_model`), không dùng tiếng Việt có dấu trong code.
-- Comment giải thích bằng tiếng Việt hoặc tiếng Anh đều được, miễn nhất quán trong file của mình.
+- Theo **PEP 8**, kiểm tra và tự định dạng bằng **ruff** (cấu hình trong `pyproject.toml`, dòng tối đa 100 ký tự). Chạy `make lint` / `make format`; sau `make setup`, `pre-commit` tự chạy ruff mỗi lần commit.
+- Tên biến/hàm: tiếng Anh, `snake_case` (ví dụ: `clean_data`, `train_model`); hằng số `UPPER_CASE`; không dùng tiếng Việt có dấu trong code.
+- Comment và docstring trong code: **tiếng Anh**. README và tài liệu trong `docs/`: tiếng Việt.
+- Hàm public có type hint và docstring ngắn (làm gì, input, output).
+- Import dùng chung: `from common.config import ...`, `from common.spark_session import build_spark` — **không** dùng `sys.path.insert(...)`, không tự viết SparkSession riêng.
+- Test đặt trong `tests/` của thư mục mình, chạy bằng `make test` (pytest).
 - Mỗi thư mục (`data_pipeline/`, `ml_model/`...) phải có `README.md` riêng ghi rõ: cách chạy code, input cần gì, output ra gì, và **số liệu quy mô** (số dòng, thời gian chạy) của phần mình.
-- Không commit file dữ liệu lớn (.csv gốc, thư mục Delta `output/`) lên Git — thêm vào `.gitignore`, chỉ commit code.
 
 ### 6.5. Môi trường chạy thống nhất
 **Version đã chốt cho cả nhóm (xem `docs/INTEGRATION_GUIDELINES.md` để biết cách verify):**
@@ -239,10 +255,10 @@ Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người 
 | delta-spark | 4.4.0 |
 | deltalake (Task 4 dùng để đọc, không cần Spark) | 1.6.6 |
 
-- File `requirements-spark.txt` ở gốc repo pin sẵn `pyspark==4.2.0` + `delta-spark==4.4.0` — mỗi `requirements.txt` riêng của từng task thêm dòng `-r ../requirements-spark.txt` thay vì tự ghi version khác.
-- Mỗi thư mục có file `requirements.txt` liệt kê thư viện cần cài, để người khác `pip install -r requirements.txt` là chạy được, không phải tự đoán thiếu thư viện gì.
+- Mọi dependency khai báo **1 chỗ duy nhất** trong `pyproject.toml`, chia theo nhóm (extras): `spark` (Task 1, 2, 3), `dashboard` (Task 4), `dev` (ruff, pytest, pre-commit). Task nào cần thêm thư viện (ví dụ `confluent-kafka` cho streaming, `streamlit` cho dashboard) thì thêm vào extras tương ứng hoặc tạo extras mới, ghi version cụ thể (`==`). Không dùng `requirements.txt` riêng lẻ.
+- Cài đặt 1 lệnh ở gốc repo: `make setup` (tương đương `pip install -e ".[spark,dashboard,dev]"` + `pre-commit install`), trong virtualenv Python 3.11.
 - **Không tự ý đổi version** trong bảng trên khi đang làm giữa chừng — nếu thấy cần đổi (ví dụ gặp bug), phải báo cả nhóm trước, vì đổi version pyspark có thể làm hỏng code của người khác.
-- Chạy trên toàn bộ dataset cần tăng bộ nhớ Spark (ví dụ `spark.driver.memory` ≥ 4g) — mỗi người ghi cấu hình đã dùng vào README của mình.
+- Chạy trên toàn bộ dataset cần tăng bộ nhớ Spark (`build_spark()` mặc định `spark.driver.memory = 4g`, đổi bằng biến môi trường `SPARK_DRIVER_MEMORY`) — mỗi người ghi cấu hình đã dùng vào README của mình.
 
 ### 6.6. Xử lý xung đột / bất đồng
 - Nếu 2 người bất đồng về kỹ thuật (ví dụ chọn model nào), quyết định bằng **số liệu** (so RMSE) chứ không quyết theo cảm tính.

@@ -2,10 +2,10 @@
 
 Train model baseline (mức tiêu thụ bình thường) bằng **Spark MLlib Pipeline** trên toàn bộ tòa nhà.
 
-| | Đường dẫn (`config.py`) |
+| | Đường dẫn (`common/config.py`) |
 |---|---|
-| Input | `CLEAN_DATA_PATH` = `data_pipeline/output/clean_data` (Silver) |
-| Output | `MODEL_PATH` = `ml_model/models/baseline_model/`, load bằng `PipelineModel.load(MODEL_PATH)` |
+| Input | `CLEAN_DATA_PATH` = `data/silver/clean_data` (Silver) |
+| Output | `MODEL_PATH` = `data/models/baseline_model/`, load bằng `PipelineModel.load(MODEL_PATH)` |
 
 - Chia train/test theo thời gian: `timestamp < TEST_START` là train (2016), còn lại là test (2017).
 - Pipeline: `StringIndexer(primary_use, site_id)` → `VectorAssembler` → Regressor tốt nhất (LR / RF / GBT, chọn theo RMSE).
@@ -15,9 +15,9 @@ Train model baseline (mức tiêu thụ bình thường) bằng **Spark MLlib Pi
 ## Cách chạy
 
 ```bash
-pip install -r requirements.txt
-python train_baseline.py   # train + lưu model
-python evaluate.py         # RMSE/MAE + injected anomaly test
+# từ gốc repo, sau `make setup`
+python ml_model/train_baseline.py   # train + lưu model
+python ml_model/evaluate.py         # RMSE/MAE + injected anomaly test
 ```
 
 ## Kết quả

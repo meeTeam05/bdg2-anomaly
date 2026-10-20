@@ -1,24 +1,25 @@
 """Shared constants and data contract for the whole pipeline.
 
-Import from a subfolder:
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from config import THRESHOLD_RATIO, CLEAN_DATA_PATH, CLEAN_DATA_SCHEMA
+After `pip install -e .` at the repo root, import from anywhere:
+    from common.config import THRESHOLD_RATIO, CLEAN_DATA_PATH, CLEAN_DATA_SCHEMA
 """
 
+import os
 from pathlib import Path
 
 # Absolute paths so every task resolves the same table regardless of cwd.
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Medallion layers (all Delta Lake), see TASKS.md section 3.
-RAW_DATA_DIR = str(REPO_ROOT / "data_pipeline" / "raw")              # BDG2 CSVs, not in git
-BRONZE_DIR = str(REPO_ROOT / "data_pipeline" / "output" / "bronze")  # + /electricity, /weather, /metadata
-CLEAN_DATA_PATH = str(REPO_ROOT / "data_pipeline" / "output" / "clean_data")        # Silver
-MODEL_PATH = str(REPO_ROOT / "ml_model" / "models" / "baseline_model")
-ENERGY_RESULTS_PATH = str(REPO_ROOT / "streaming" / "output" / "energy_results")    # Gold
-ENERGY_RESULTS_CHECKPOINT = str(REPO_ROOT / "streaming" / "output" / "_checkpoints" / "energy_results")
+# All data lives under data/ (not in git). Override with BDG2_DATA_DIR, e.g. for tests.
+DATA_DIR = Path(os.environ.get("BDG2_DATA_DIR", REPO_ROOT / "data"))
+
+# Medallion layers (all Delta Lake), see docs/TASKS.md section 3.
+RAW_DATA_DIR = str(DATA_DIR / "raw")  # BDG2 CSVs
+BRONZE_DIR = str(DATA_DIR / "bronze")  # one Delta table per source file
+CLEAN_DATA_PATH = str(DATA_DIR / "silver" / "clean_data")
+MODEL_PATH = str(DATA_DIR / "models" / "baseline_model")
+ENERGY_RESULTS_PATH = str(DATA_DIR / "gold" / "energy_results")
+ENERGY_RESULTS_CHECKPOINT = str(DATA_DIR / "checkpoints" / "energy_results")
 
 # Silver and Gold tables are partitioned by this column.
 PARTITION_COLUMN = "site_id"
@@ -68,9 +69,15 @@ def to_spark_struct_type(schema):
     (e.g. the Task 4 dashboard).
     """
     from pyspark.sql.types import (
-        StructType, StructField,
-        StringType, TimestampType, DoubleType, IntegerType, BooleanType,
+        BooleanType,
+        DoubleType,
+        IntegerType,
+        StringType,
+        StructField,
+        StructType,
+        TimestampType,
     )
+
     type_map = {
         "string": StringType(),
         "timestamp": TimestampType(),
@@ -78,7 +85,4 @@ def to_spark_struct_type(schema):
         "int": IntegerType(),
         "boolean": BooleanType(),
     }
-    return StructType([
-        StructField(name, type_map[dtype], nullable=True)
-        for name, dtype in schema
-    ])
+    return StructType([StructField(name, type_map[dtype], nullable=True) for name, dtype in schema])

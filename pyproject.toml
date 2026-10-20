@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bdg2-anomaly"
+version = "0.1.0"
+description = "Real-time building energy anomaly detection with Kafka and Spark on Building Data Genome 2"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+# No base dependencies: each task installs only the extras it needs.
+dependencies = []
+
+[project.optional-dependencies]
+# Task 1, 2, 3 (anything that runs Spark).
+spark = [
+    "pyspark==4.2.0",
+    "delta-spark==4.4.0",  # requires pyspark in [4.0.1, 4.2.0]
+    "numpy==2.5.4",        # pyspark.ml needs it
+]
+# Task 4 reads Delta with delta-rs, no Spark needed.
+dashboard = [
+    "deltalake==1.6.6",
+    "pyarrow==26.0.0",
+]
+dev = [
+    "ruff==0.17.1",
+    "pytest==9.1.1",
+    "pre-commit==4.7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["common*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, bugbear, pep8-naming
+select = ["E", "W", "F", "I", "UP", "B", "N"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["common"]
+
+[tool.pytest.ini_options]
+testpaths = ["data_pipeline", "ml_model", "streaming", "dashboard"]
+addopts = "--import-mode=importlib"
