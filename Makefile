@@ -11,7 +11,7 @@ help:  ## list targets
 
 setup:  ## create the bdg2 venv (.venv, Python 3.11) with all extras + git hooks; needs uv
 	[ -d .venv ] || uv venv --python 3.11 --prompt bdg2 .venv
-	uv pip install --python .venv/bin/python -e ".[spark,dashboard,dev]"
+	uv pip install --python .venv/bin/python -e ".[spark,dashboard,notebook,dev]"
 	.venv/bin/pre-commit install
 
 data:  ## download the full BDG2 raw dataset into data/raw (~370 MB)

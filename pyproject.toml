@@ -23,6 +23,13 @@ dashboard = [
     "deltalake==1.6.6",
     "pyarrow==26.0.0",
 ]
+# Exploration notebooks (notebooks/): Spark aggregates -> pandas -> charts.
+notebook = [
+    "pandas==2.3.3",  # PySpark 4.2 does not fully support pandas 3 yet
+    "matplotlib==3.11.2",
+    "ipykernel==7.4.0",  # run notebooks in VS Code / Jupyter
+    "nbclient==0.11.0",  # execute notebooks headless
+]
 dev = [
     "ruff==0.17.1",
     "pytest==9.1.1",
@@ -40,6 +47,8 @@ extend-exclude = ["notebooks"]
 [tool.ruff.lint]
 # pycodestyle, pyflakes, isort, pyupgrade, bugbear, pep8-naming
 select = ["E", "W", "F", "I", "UP", "B", "N"]
+# N812: `from pyspark.sql import functions as F` is the standard PySpark idiom.
+ignore = ["N812"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["common"]
