@@ -29,9 +29,9 @@ Bổ sung cho `docs/TASKS.md`: chuẩn kỹ thuật dùng chung + các điểm c
 **Cài đặt và import** (repo là 1 package Python, không dùng `sys.path`):
 
 ```bash
-python3.11 -m venv .venv && source .venv/bin/activate
-make setup     # pip install -e ".[spark,dashboard,dev]" + pre-commit install
-make data      # tải toàn bộ BDG2 vào data/raw
+make setup                  # uv tạo .venv (prompt "bdg2", Python 3.11) + cài extras + pre-commit
+source .venv/bin/activate
+make data                   # tải toàn bộ BDG2 vào data/raw
 ```
 
 ```python

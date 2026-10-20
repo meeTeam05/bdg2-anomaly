@@ -9,9 +9,10 @@ METERS  := electricity chilledwater steam hotwater gas water irrigation solar
 help:  ## list targets
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-11s %s\n", $$1, $$2}'
 
-setup:  ## install all extras in editable mode + git hooks
-	pip install -e ".[spark,dashboard,dev]"
-	pre-commit install
+setup:  ## create the bdg2 venv (.venv, Python 3.11) with all extras + git hooks; needs uv
+	[ -d .venv ] || uv venv --python 3.11 --prompt bdg2 .venv
+	uv pip install --python .venv/bin/python -e ".[spark,dashboard,dev]"
+	.venv/bin/pre-commit install
 
 data:  ## download the full BDG2 raw dataset into data/raw (~370 MB)
 	mkdir -p data/raw

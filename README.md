@@ -37,12 +37,12 @@ Mục tiêu: xây dựng hoàn chỉnh 1 pipeline Big Data end-to-end bằng Spa
 
 ## Cài đặt
 
-Yêu cầu: Python 3.11, Java 17, Docker, `make`, `wget`.
+Yêu cầu: Java 17, Docker, `make`, `wget`, [uv](https://docs.astral.sh/uv/) (`uv` tự tải Python 3.11).
 
 ```bash
-python3.11 -m venv .venv && source .venv/bin/activate
-make setup   # cài package + dependencies + git hooks
-make data    # tải toàn bộ BDG2 (~370 MB) vào data/raw/
+make setup                  # tạo môi trường "bdg2" (.venv, Python 3.11) + cài thư viện + git hooks
+source .venv/bin/activate   # dòng lệnh hiện (bdg2)
+make data                   # tải toàn bộ BDG2 (~370 MB) vào data/raw/
 ```
 
 ## Chạy end-to-end

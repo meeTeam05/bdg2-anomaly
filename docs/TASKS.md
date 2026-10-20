@@ -256,7 +256,7 @@ Mỗi người nên có ít nhất 1 bản nháp/mock data sớm để người 
 | deltalake (Task 4 dùng để đọc, không cần Spark) | 1.6.6 |
 
 - Mọi dependency khai báo **1 chỗ duy nhất** trong `pyproject.toml`, chia theo nhóm (extras): `spark` (Task 1, 2, 3), `dashboard` (Task 4), `dev` (ruff, pytest, pre-commit). Task nào cần thêm thư viện (ví dụ `confluent-kafka` cho streaming, `streamlit` cho dashboard) thì thêm vào extras tương ứng hoặc tạo extras mới, ghi version cụ thể (`==`). Không dùng `requirements.txt` riêng lẻ.
-- Cài đặt 1 lệnh ở gốc repo: `make setup` (tương đương `pip install -e ".[spark,dashboard,dev]"` + `pre-commit install`), trong virtualenv Python 3.11.
+- Cài đặt 1 lệnh ở gốc repo: `make setup` — dùng `uv` tạo môi trường `bdg2` (thư mục `.venv`, Python 3.11), cài `-e ".[spark,dashboard,dev]"` và `pre-commit`. Kích hoạt bằng `source .venv/bin/activate`.
 - **Không tự ý đổi version** trong bảng trên khi đang làm giữa chừng — nếu thấy cần đổi (ví dụ gặp bug), phải báo cả nhóm trước, vì đổi version pyspark có thể làm hỏng code của người khác.
 - Chạy trên toàn bộ dataset cần tăng bộ nhớ Spark (`build_spark()` mặc định `spark.driver.memory = 4g`, đổi bằng biến môi trường `SPARK_DRIVER_MEMORY`) — mỗi người ghi cấu hình đã dùng vào README của mình.
 

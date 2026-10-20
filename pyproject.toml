@@ -16,7 +16,7 @@ dependencies = []
 spark = [
     "pyspark==4.2.0",
     "delta-spark==4.4.0",  # requires pyspark in [4.0.1, 4.2.0]
-    "numpy==2.5.4",        # pyspark.ml needs it
+    "numpy==2.4.6",        # pyspark.ml needs it; 2.5+ requires Python 3.12
 ]
 # Task 4 reads Delta with delta-rs, no Spark needed.
 dashboard = [

@@ -1,6 +1,7 @@
 """One SparkSession setup for every task: local mode, Delta Lake, UTC."""
 
 import os
+import sys
 
 from common.config import TIMEZONE
 
@@ -15,6 +16,10 @@ def build_spark(app_name: str, extra_packages: list[str] | None = None):
     # Imported lazily so `common.config` stays usable without pyspark (dashboard).
     from delta import configure_spark_with_delta_pip
     from pyspark.sql import SparkSession
+
+    # Python workers must use this interpreter (the venv); otherwise Spark picks the
+    # system `python3`, and a minor-version mismatch fails with PYTHON_VERSION_MISMATCH.
+    os.environ.setdefault("PYSPARK_PYTHON", sys.executable)
 
     builder = (
         SparkSession.builder.appName(app_name)
