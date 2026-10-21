@@ -18,21 +18,11 @@ from pathlib import Path
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
-from common.config import BRONZE_DIR, RAW_DATA_DIR
+from common.config import BRONZE_DIR, METER_TYPES, RAW_DATA_DIR
 from common.spark_session import build_spark
 
-# One wide table per meter type: `timestamp` + one column per building.
-METER_SOURCES = [
-    "electricity",
-    "chilledwater",
-    "steam",
-    "hotwater",
-    "gas",
-    "water",
-    "irrigation",
-    "solar",
-]
-SOURCES = [*METER_SOURCES, "weather", "metadata"]
+# One wide table per meter type (`timestamp` + one column per building), then weather/metadata.
+SOURCES = [*METER_TYPES, "weather", "metadata"]
 
 # BDG2 timestamps have no zone ("2016-01-01 00:00:00"). With the session in UTC,
 # Spark stores the same wall-clock value; Silver decides the real time zone.

@@ -24,6 +24,19 @@ ENERGY_RESULTS_CHECKPOINT = str(DATA_DIR / "checkpoints" / "energy_results")
 # Silver and Gold tables are partitioned by this column.
 PARTITION_COLUMN = "site_id"
 
+# BDG2 meter files (data/raw/<type>.csv). Silver keeps all of them; one row is one
+# reading of one meter, keyed by (building_id, meter_type, timestamp).
+METER_TYPES = [
+    "electricity",
+    "chilledwater",
+    "steam",
+    "hotwater",
+    "gas",
+    "water",
+    "irrigation",
+    "solar",  # generation, not consumption: keep in Silver, skip for anomaly detection
+]
+
 # Time-based split: train on 2016, test on 2017.
 # Task 2 splits on it; Task 3 replays only timestamp >= TEST_START.
 TEST_START = "2017-01-01 00:00:00"
@@ -33,11 +46,14 @@ TEST_START = "2017-01-01 00:00:00"
 THRESHOLD_RATIO = 0.28
 
 # All timestamps are UTC. Convert to local time only for display (Task 4).
+# hour_of_day / day_of_week / is_weekend are computed from the site's LOCAL time,
+# because occupancy follows local clocks.
 TIMEZONE = "UTC"
 
 # Task 1 -> Task 2, Task 3
 CLEAN_DATA_SCHEMA = [
     ("building_id", "string"),
+    ("meter_type", "string"),
     ("site_id", "string"),
     ("timestamp", "timestamp"),
     ("meter_reading", "double"),
@@ -53,6 +69,7 @@ CLEAN_DATA_SCHEMA = [
 # Task 3 -> Task 4
 ENERGY_RESULTS_SCHEMA = [
     ("building_id", "string"),
+    ("meter_type", "string"),
     ("site_id", "string"),
     ("timestamp", "timestamp"),
     ("meter_reading", "double"),

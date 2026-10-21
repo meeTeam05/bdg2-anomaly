@@ -68,5 +68,5 @@ spark = build_spark("train_baseline")
 | 8 | ~~Partitioning cho `clean_data` / `energy_results`~~ | — | **Đã chốt:** cả 2 bảng partition theo `site_id` (cột `site_id` đã thêm vào schema trong `common/config.py`) |
 | 9 | Xử lý message lỗi/trễ trong Kafka consumer chưa có quy ước | Streaming job crash hoặc âm thầm mất data | Crash, skip, hay log riêng khi gặp message sai schema/trễ |
 | 10 | Chưa có runbook end-to-end cho buổi demo | Lần đầu chạy full pipeline rơi đúng hôm bảo vệ mới lộ lỗi tích hợp | Ai viết `docs/RUNBOOK.md`, viết trước deadline nào |
-| 11 | "Dùng toàn bộ dataset" chỉ gồm đồng hồ `electricity` hay cả 8 loại đồng hồ BDG2 (chilledwater, steam, gas, …) | Hiểu sai yêu cầu của GV; nếu thêm loại đồng hồ thì phải đổi schema | Hỏi GV; nếu cần nhiều loại thì thêm cột `meter_type` vào schema mục 3 |
+| 11 | ~~Chỉ `electricity` hay cả 8 loại đồng hồ?~~ | — | **Đã chốt:** cả 8 loại (`METER_TYPES`), thêm cột `meter_type` vào cả 2 schema; khóa = (`building_id`, `meter_type`, `timestamp`). `solar` không dùng cho phát hiện bất thường |
 | 12 | Tòa nhà tiêu thụ rất nhỏ (baseline ≈ 0) dễ vượt ngưỡng 28% liên tục | Dashboard ngập báo động giả | Task 2 đo tỉ lệ báo động giả, đề xuất ngưỡng tối thiểu tuyệt đối nếu cần |

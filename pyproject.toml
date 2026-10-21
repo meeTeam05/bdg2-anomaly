@@ -37,7 +37,8 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["common*"]
+# Task folders become packages as they get tests, e.g. `from data_pipeline.preprocess import ...`.
+include = ["common*", "data_pipeline*"]
 
 [tool.ruff]
 line-length = 100
@@ -51,7 +52,7 @@ select = ["E", "W", "F", "I", "UP", "B", "N"]
 ignore = ["N812"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["common"]
+known-first-party = ["common", "data_pipeline"]
 
 [tool.pytest.ini_options]
 testpaths = ["data_pipeline", "ml_model", "streaming", "dashboard"]

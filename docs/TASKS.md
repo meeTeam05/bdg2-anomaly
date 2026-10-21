@@ -15,7 +15,7 @@
 ## 0. Nguyên tắc & kiến trúc tổng thể
 
 **Nguyên tắc bắt buộc:**
-1. **Dùng toàn bộ dataset** — tất cả tòa nhà, tất cả site, đủ 2 năm (2016–2017) của đồng hồ điện (`electricity`). Không lọc bớt tòa nhà ở bất kỳ bước nào của pipeline batch.
+1. **Dùng toàn bộ dataset** — tất cả tòa nhà, tất cả site, đủ 2 năm (2016–2017) của **cả 8 loại đồng hồ** (electricity, chilledwater, steam, hotwater, gas, water, irrigation, solar — 53.561.832 số đo; danh sách ở `METER_TYPES` trong `common/config.py`). Không lọc bớt tòa nhà ở bất kỳ bước nào của pipeline batch.
 2. **Mọi bước xử lý dữ liệu đều bằng Spark** (Spark SQL / DataFrame / MLlib / Structured Streaming). Không dùng pandas để xử lý dữ liệu chính. Ngoại lệ duy nhất: dashboard (Task 4) đọc kết quả bằng `deltalake` để hiển thị.
 3. **Mọi bảng trung gian đều là Delta Lake**, tổ chức theo kiến trúc **Medallion (Bronze → Silver → Gold)**.
 
@@ -86,24 +86,26 @@ bdg2-anomaly/
 ## 2. Task chi tiết theo người
 
 ### Task 1 — Data Pipeline: Ingestion → Bronze → Silver (Hưng)
-**Input:** File gốc BDG2 (`electricity.csv`, `weather.csv`, `metadata.csv`) — **toàn bộ**, không lọc — đặt tại `data/raw/` (tải bằng `make data`, không commit lên Git).
+**Input:** File gốc BDG2 (8 file đồng hồ `<meter_type>.csv`, `weather.csv`, `metadata.csv`) — **toàn bộ**, không lọc — đặt tại `data/raw/` (tải bằng `make data`, không commit lên Git).
 **Việc làm:**
-- **Ingestion (`ingest.py`):** đọc 3 file CSV bằng Spark, ghi nguyên trạng ra Delta tầng Bronze tại `data/bronze/<tên file>`. Không biến đổi dữ liệu ở bước này (để có thể chạy lại Silver mà không cần đọc lại CSV).
+- **Ingestion (`ingest.py`):** đọc 10 file CSV bằng Spark, ghi nguyên trạng ra Delta tầng Bronze tại `data/bronze/<tên file>`. Không biến đổi dữ liệu ở bước này (để có thể chạy lại Silver mà không cần đọc lại CSV).
 - **EDA (`notebooks/eda.ipynb`, dùng Spark):** schema, số dòng, số tòa nhà / site / loại hình (`primary_use`), tỉ lệ thiếu dữ liệu theo site và theo tòa nhà, phân phối `meter_reading`.
 - **Bronze → Silver (`preprocess.py`):**
-  - `electricity.csv` ở dạng **wide** (mỗi tòa nhà 1 cột) → **unpivot** về dạng long (`building_id`, `timestamp`, `meter_reading`) bằng Spark (`unpivot`/`stack`).
-  - Join với `metadata` theo `building_id` (lấy `site_id`, `primary_use`, `square_feet`), rồi join với `weather` theo `site_id` + `timestamp`.
-  - Tạo feature: `hour_of_day`, `day_of_week`, `is_weekend`.
-  - Làm sạch: loại giá trị âm, giá trị đứng yên bất thường (flatline), xử lý null (weather: nội suy/forward-fill theo site; `meter_reading` null: loại bỏ). Ghi lại số dòng bị loại ở từng bước.
+  - Thực hiện đúng các quyết định làm sạch D1–D11 ở mục 8 của `notebooks/eda.ipynb` (mỗi quyết định là 1 hàm, có test trong `data_pipeline/tests/`):
+  - 8 file đồng hồ ở dạng **wide** (mỗi tòa nhà 1 cột) → **unpivot** về dạng long (`meter_type`, `building_id`, `timestamp`, `meter_reading`) và gộp lại.
+  - Làm sạch: bỏ null/âm, flatline ≥ 24h, outlier > 10 × p99, đồng hồ còn < 50% số giờ. Ghi lại số dòng bị loại ở từng bước.
+  - Join với `metadata` theo `building_id`, với `weather` (nội suy khoảng trống ≤ 6h) theo `site_id` + `timestamp` **ở giờ địa phương**.
+  - Tạo feature `hour_of_day`, `day_of_week`, `is_weekend` từ **giờ địa phương**, rồi **chuyển `timestamp` sang UTC** (BDG2 lưu giờ địa phương — EDA mục 6).
   - Ghi ra Delta, **partition theo `site_id`**.
-**Output bắt buộc:** bảng Delta tầng Silver đúng schema ở mục 3, đặt tại `data/silver/clean_data` (thư mục Delta table, không phải file `.parquet` đơn), chứa **tất cả tòa nhà** qua được bước làm sạch.
+- **Kiểm tra (`validate_silver.py`):** schema, null, số âm, trùng khóa `(building_id, meter_type, timestamp)`, miền giá trị, partition. Thoát với mã lỗi nếu có kiểm tra không đạt.
+**Output bắt buộc:** bảng Delta tầng Silver đúng schema ở mục 3, đặt tại `data/silver/clean_data` (thư mục Delta table, không phải file `.parquet` đơn), chứa **tất cả đồng hồ** qua được bước làm sạch, và `validate_silver.py` báo đạt toàn bộ.
 **Done khi:** Mai chạy được `train_baseline.py` trên bảng này không lỗi.
 
 ### Task 2 — ML Model với Spark MLlib (Mai)
 **Input:** bảng Delta `data/silver/clean_data` (từ Task 1) — toàn bộ tòa nhà.
 **Việc làm:**
-- Xây **Spark MLlib `Pipeline`** gồm: `StringIndexer` (`primary_use`, `site_id`) → `VectorAssembler` → Regressor. Toàn bộ bước biến đổi feature nằm trong Pipeline để Task 3 load về là dùng được ngay, không phải viết lại.
-- Feature: thời gian (`hour_of_day`, `day_of_week`, `is_weekend`), thời tiết (`air_temperature`, `dew_temperature`), đặc trưng tòa nhà (`square_feet`, `primary_use`, `site_id`). **Không** đưa `building_id` trực tiếp làm feature (~1.600 giá trị, vượt `maxBins` của cây).
+- Xây **Spark MLlib `Pipeline`** gồm: `StringIndexer` (`meter_type`, `primary_use`, `site_id`) → `VectorAssembler` → Regressor. Toàn bộ bước biến đổi feature nằm trong Pipeline để Task 3 load về là dùng được ngay, không phải viết lại.
+- Feature: thời gian (`hour_of_day`, `day_of_week`, `is_weekend`), thời tiết (`air_temperature`, `dew_temperature`), đặc trưng tòa nhà (`square_feet`, `primary_use`, `site_id`), loại đồng hồ (`meter_type` — **bắt buộc**, vì nhiệt độ tác động ngược chiều nhau giữa các loại, EDA mục 7). `solar` là đồng hồ phát điện: loại khỏi phần phát hiện bất thường. **Không** đưa `building_id` trực tiếp làm feature (~1.600 giá trị, vượt `maxBins` của cây).
 - Chia train/test **theo thời gian** (không random): **train = năm 2016, test = năm 2017** (mốc `TEST_START` trong `common/config.py`). Task 3 replay đúng giai đoạn test để model không "nhìn thấy trước" dữ liệu.
 - Train + so sánh: Linear Regression, Random Forest, GBT. Có thể thử target `log1p(meter_reading)` vì quy mô tòa nhà chênh lệch lớn.
 - Được dùng sample để dò tham số cho nhanh, nhưng **model cuối cùng phải train trên toàn bộ tập train**.
@@ -146,9 +148,10 @@ bdg2-anomaly/
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
 | `building_id` | string | |
+| `meter_type` | string | 1 trong `METER_TYPES`; khóa = (`building_id`, `meter_type`, `timestamp`) |
 | `site_id` | string | cột partition |
 | `timestamp` | timestamp | UTC |
-| `meter_reading` | double | kWh |
+| `meter_reading` | double | đơn vị theo loại đồng hồ (điện: kWh) |
 | `air_temperature` | double | |
 | `dew_temperature` | double | liên quan độ ẩm |
 | `hour_of_day` | int | 0–23 |
@@ -161,6 +164,7 @@ bdg2-anomaly/
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
 | `building_id` | string | |
+| `meter_type` | string | |
 | `site_id` | string | cột partition |
 | `timestamp` | timestamp | UTC |
 | `meter_reading` | double | giá trị thực tế |
