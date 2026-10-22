@@ -9,7 +9,7 @@ export SPARK_DRIVER_MEMORY ?= 6g
 
 .DEFAULT_GOAL := help
 .PHONY: help setup data lint format test infra-up infra-down reset task1 ingest preprocess validate \
-	stream produce dashboard mock demo-mock
+	stream produce dashboard demo mock demo-mock
 
 help:  ## list targets
 	@grep -E '^[a-z0-9-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-12s %s\n", $$1, $$2}'
@@ -69,6 +69,11 @@ produce:  ## Task 3: replay 2017 into Kafka, e.g. make produce HOURS=48
 
 dashboard:  ## Task 4: dashboard on the Gold table, http://localhost:8501
 	$(BIN)/streamlit run dashboard/app.py
+
+demo:  ## real end to end on a fresh run: Kafka + streaming + producer + dashboard (Ctrl+C stops)
+	$(MAKE) reset
+	@echo "Dashboard: http://localhost:8501 (fills in after the streaming job's first batch)"
+	$(MAKE) -j3 stream produce dashboard
 
 mock:  ## Task 4: fake Gold table in dashboard/.mock_output, one batch every 5 s
 	$(PY) dashboard/mock_stream.py --reset

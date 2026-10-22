@@ -139,17 +139,26 @@ def replay_site(site, site_table, producer, args, start, spike_buildings, t0, st
         stop.set()
 
 
-def check_topic(producer, topic):
-    """Fail fast with a readable message instead of hanging on a missing broker/topic."""
-    try:
-        metadata = producer.list_topics(topic, timeout=10)
-    except KafkaException as e:
-        sys.exit(f"Kafka not reachable ({e}). Start it: make infra-up")
-    if metadata.topics[topic].error is not None:
-        sys.exit(
-            f"Topic '{topic}' does not exist (auto-create is off). "
-            "It is created by the kafka-init service in infra/docker-compose.yml."
-        )
+def check_topic(producer, topic, wait_sec=30):
+    """Fail with a readable message instead of hanging on a missing broker/topic.
+
+    Waits up to `wait_sec` for the topic: right after `make infra-up` the kafka-init
+    container may still be creating it (`make demo` starts the producer straight away).
+    """
+    deadline = time.monotonic() + wait_sec
+    while True:
+        try:
+            metadata = producer.list_topics(topic, timeout=10)
+        except KafkaException as e:
+            sys.exit(f"Kafka not reachable ({e}). Start it: make infra-up")
+        if metadata.topics[topic].error is None:
+            return
+        if time.monotonic() >= deadline:
+            sys.exit(
+                f"Topic '{topic}' does not exist (auto-create is off). "
+                "It is created by the kafka-init service in infra/docker-compose.yml."
+            )
+        time.sleep(1)
 
 
 def parse_args():

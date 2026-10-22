@@ -51,11 +51,12 @@ make data                   # tải toàn bộ BDG2 (~370 MB) vào data/raw/
 make task1                             # Task 1: CSV -> Bronze -> Silver -> kiểm tra (~3-4 phút)
 SPARK_DRIVER_MEMORY=10g python ml_model/train_baseline.py --save   # Task 2: model + hồ sơ
 SPARK_DRIVER_MEMORY=10g python ml_model/evaluate.py --save meter_p99_3h   # ngưỡng riêng
-make infra-up                          # Kafka (localhost:9094) + topic
-make stream                            # terminal 1: Kafka -> model -> Gold
-make produce HOURS=48                  # terminal 2: replay 48 giờ đầu 2017 vào Kafka
-make dashboard                         # terminal 3: http://localhost:8501
+make demo HOURS=48                     # Kafka + streaming + producer + dashboard, http://localhost:8501
 ```
+
+`make demo` luôn bắt đầu phiên mới (`make reset`) rồi chạy song song 3 phần, Ctrl+C dừng tất cả (sau đó
+`make infra-down` để tắt Kafka). Bỏ `HOURS` thì replay cả năm 2017 (~7 giờ). Muốn xem log từng phần riêng:
+`make infra-up`, rồi mỗi terminal một lệnh `make stream` / `make produce HOURS=48` / `make dashboard`.
 
 Chạy lại demo từ đầu: `make reset` (Kafka, bảng Gold và checkpoint phải xóa cùng lúc). Chỉ xem
 dashboard với dữ liệu giả, không cần Kafka/Spark: `make demo-mock`.

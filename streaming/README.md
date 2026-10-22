@@ -113,7 +113,7 @@ pytest streaming                        # + 14 test end-to-end, cần Kafka và 
 ```
 
 Sau khi tích hợp với `main`: 41 test không cần Kafka và **14 test end-to-end đều đạt** (Kafka 4.2 KRaft
-chạy trực tiếp trên máy, cùng cấu hình `infra/docker-compose.yml`). Test end-to-end đã bắt được 1 lỗi
+chạy trực tiếp trên máy, và chạy lại trên Kafka trong Docker bằng `infra/docker-compose.yml`). Test end-to-end đã bắt được 1 lỗi
 của `monitor()`: báo cáo "idle" của Spark mang `batchId` của batch kế tiếp, làm batch thật bị bỏ khỏi
 log/CSV và không chạy compaction; đã sửa. `TEST_REPORT.md` là báo cáo của phiên bản trước khi tích hợp.
 
