@@ -71,4 +71,15 @@ Tham số: RF `numTrees=50, maxDepth=10`; GBT `maxIter=50, maxDepth=6`; `maxMemo
 
 ## Model cuối (100% tập train)
 
-TODO: chạy lệnh "Model cuối" ở trên, ghi RMSE / MAE / RMSLE / flagged / thời gian train.
+Lệnh: `SPARK_DRIVER_MEMORY=10g python ml_model/train_baseline.py --models rf --targets raw --sample 1 --save` — toàn bộ dữ liệu điện, tổng 155 s, train RF 106 s (32 core).
+
+| Model | RMSE | MAE | RMSLE | flagged | Train (s) |
+|---|---|---|---|---|---|
+| Trung bình cộng | 261,52 | 146,46 | 1,694 | 84,7% | — |
+| Chỉ hồ sơ (không model) | 90,01 | 28,54 | 0,569 | **26,8%** | — |
+| **Random Forest, raw (đã lưu)** | **81,61** | 28,78 | **0,483** | 28,6% | 106 |
+
+- Đã lưu: `data/models/baseline_model/` (StringIndexer ×3 → VectorAssembler → RandomForestRegressionModel, 4,9 MB) và `data/models/meter_profile/` (813.888 dòng = 1.413 đồng hồ × 12 tháng × 24 giờ × 2 loại ngày, 11 MB). Đã kiểm tra `PipelineModel.load` + `add_profile_features` + `transform` ra cột `prediction`.
+- RF 50 cây, `maxDepth=10`. Chạy 100% cần `SPARK_DRIVER_MEMORY=10g`: RF giữ 1 trọng số cho mỗi cây trên mỗi dòng (11,5 triệu dòng train), 6 GB bị tràn bộ nhớ.
+- **Train trên 100% không tốt hơn mẫu 5%** (RMSLE 0,483 cả hai): giới hạn nằm ở feature, không phải lượng dữ liệu.
+- RF tốt hơn "chỉ hồ sơ" về sai số (RMSLE 0,483 so với 0,569) nhưng **báo động giả gần bằng** (28,6% so với 26,8%). Bước 6 (`evaluate.py`) sẽ đo khả năng bắt bất thường thật và đề xuất ngưỡng.
