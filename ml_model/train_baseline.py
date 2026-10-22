@@ -22,6 +22,7 @@ from pyspark.ml.feature import OneHotEncoder, SQLTransformer, StringIndexer, Vec
 from pyspark.ml.regression import GBTRegressor, LinearRegression, RandomForestRegressor
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
+from pyspark.storagelevel import StorageLevel
 
 from common.config import (
     ANOMALY_METER_TYPES,
@@ -55,7 +56,7 @@ MODELS = ["lr", "rf", "gbt"]
 TARGETS = ["raw", "log1p"]
 
 
-def build_regressor(name: str, label_col: str, prediction_col: str):
+def build_regressor(name: str, label_col: str, prediction_col: str, num_trees: int = 50):
     """Return an unfitted regressor; tree sizes are kept moderate for the full dataset."""
     common = {"featuresCol": "features", "labelCol": label_col, "predictionCol": prediction_col}
     # Split-statistics buffer per task (default 256 MB). In local mode all 32 cores share the
@@ -65,14 +66,14 @@ def build_regressor(name: str, label_col: str, prediction_col: str):
     if name == "lr":
         return LinearRegression(**common)
     if name == "rf":
-        return RandomForestRegressor(numTrees=50, maxDepth=10, **trees, **common)
+        return RandomForestRegressor(numTrees=num_trees, maxDepth=10, **trees, **common)
     if name == "gbt":
         return GBTRegressor(maxIter=50, maxDepth=6, **trees, **common)
     raise ValueError(f"unknown model {name!r}")
 
 
 def build_pipeline(
-    model_name: str = "lr", target: str = "raw", use_profile: bool = True
+    model_name: str = "lr", target: str = "raw", use_profile: bool = True, num_trees: int = 50
 ) -> Pipeline:
     """Feature stages + regressor; the fitted model outputs `prediction` in meter_reading units.
 
@@ -101,12 +102,12 @@ def build_pipeline(
     stages.append(VectorAssembler(inputCols=numeric + category_features, outputCol="features"))
 
     if target == "log1p":
-        stages.append(build_regressor(model_name, LOG_LABEL, "log_prediction"))
+        stages.append(build_regressor(model_name, LOG_LABEL, "log_prediction", num_trees))
         stages.append(
             SQLTransformer(statement="SELECT *, expm1(log_prediction) AS prediction FROM __THIS__")
         )
     elif target == "raw":
-        stages.append(build_regressor(model_name, LABEL, "prediction"))
+        stages.append(build_regressor(model_name, LABEL, "prediction", num_trees))
     else:
         raise ValueError(f"unknown target {target!r}")
     return Pipeline(stages=stages)
@@ -140,6 +141,12 @@ def score(predictions: DataFrame) -> dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sample", type=float, default=0.01, help="fraction of rows (0-1]")
+    parser.add_argument(
+        "--num-trees",
+        type=int,
+        default=50,
+        help="Random Forest trees; RF keeps one weight per tree per row, so fewer trees = less RAM",
+    )
     parser.add_argument("--models", nargs="+", choices=MODELS, default=MODELS)
     parser.add_argument("--targets", nargs="+", choices=TARGETS, default=TARGETS)
     parser.add_argument(
@@ -176,8 +183,13 @@ def main() -> None:
         data = add_profile_features(data, profile)
         print(f"Rows of meters without 2016 history (dropped): {before - data.count():,}")
 
-    train = with_log_label(data.filter(F.col("timestamp") < F.lit(TEST_START))).cache()
-    test = data.filter(F.col("timestamp") >= F.lit(TEST_START)).cache()
+    # Serialized + spill to disk: on 100% of the data, deserialized caches of train and test
+    # took the heap that Random Forest needs for its own bagged copy of the input.
+    train = with_log_label(data.filter(F.col("timestamp") < F.lit(TEST_START)))
+    train = train.persist(StorageLevel.MEMORY_AND_DISK)
+    test = data.filter(F.col("timestamp") >= F.lit(TEST_START)).persist(
+        StorageLevel.MEMORY_AND_DISK
+    )
     print(f"\nSample {args.sample:.0%}: train {train.count():,} rows, test {test.count():,} rows")
 
     mean_reading = train.agg(F.avg(LABEL)).first()[0]
@@ -190,7 +202,7 @@ def main() -> None:
     for target in args.targets:
         for name in args.models:
             fit_started = time.perf_counter()
-            model = build_pipeline(name, target, use_profile).fit(train)
+            model = build_pipeline(name, target, use_profile, args.num_trees).fit(train)
             fit_seconds = time.perf_counter() - fit_started
             metrics = score(model.transform(test))
             results.append((name, target, metrics, fit_seconds))
