@@ -35,7 +35,7 @@ Mục tiêu: xây dựng hoàn chỉnh 1 pipeline Big Data end-to-end bằng Spa
 | `infra/` | `docker-compose.yml` — Kafka 4.2 KRaft dùng chung | Nhật |
 | `notebooks/` | Notebook khám phá dữ liệu (EDA) | Hưng |
 | `data/` | Dữ liệu thô, bảng Delta, checkpoint, model — **không commit** | — |
-| `docs/` | `TASKS.md` (phân công, hợp đồng dữ liệu), `INTEGRATION_GUIDELINES.md`, báo cáo | Chung |
+| `docs/` | `TASKS.md` (phân công, hợp đồng dữ liệu), `INTEGRATION_GUIDELINES.md`, `REPORT_METRICS.md` (số liệu cho báo cáo) | Chung |
 | `pyproject.toml` | Dependencies (extras theo task), cấu hình ruff/pytest | Chung |
 
 Mọi lệnh bên dưới chạy từ **gốc repo**. `make` (không tham số) liệt kê toàn bộ lệnh tắt.
