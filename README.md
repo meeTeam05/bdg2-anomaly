@@ -22,25 +22,46 @@ Mục tiêu: xây dựng hoàn chỉnh 1 pipeline Big Data end-to-end bằng Spa
 
 ## Cấu trúc repo
 
-| Thư mục | Nội dung | Phụ trách |
+| Thư mục / file | Nội dung | Phụ trách |
 |---|---|---|
+| `common/` | Package dùng chung: `config.py` (đường dẫn, schema, ngưỡng), `spark_session.py` | Chung |
 | `data_pipeline/` | CSV → Bronze → Silver | Hưng |
 | `ml_model/` | Train + đánh giá model baseline (Spark MLlib) | Mai |
 | `streaming/` | Kafka producer + Spark Structured Streaming → Gold | Nguyên |
-| `dashboard/` | Streamlit dashboard + `docker-compose.yml` (Kafka, Zookeeper, Spark) | Nhật |
-| `docs/` | Báo cáo, slide, `INTEGRATION_GUIDELINES.md` | Chung |
-| `config.py` | Đường dẫn các bảng, schema, ngưỡng anomaly | Chung |
+| `dashboard/` | Streamlit dashboard | Nhật |
+| `infra/` | `docker-compose.yml` — hạ tầng dùng chung (Kafka) | Nhật |
+| `notebooks/` | Notebook khám phá dữ liệu (EDA) | Hưng |
+| `data/` | Dữ liệu thô, bảng Delta, checkpoint, model — **không commit** | — |
+| `docs/` | `TASKS.md` (phân công, hợp đồng dữ liệu), `INTEGRATION_GUIDELINES.md`, báo cáo | Chung |
+| `pyproject.toml` | Dependencies (extras theo task), cấu hình ruff/pytest | Chung |
+
+## Cài đặt
+
+Yêu cầu: Java 17, Docker, `make`, `wget`, [uv](https://docs.astral.sh/uv/) (`uv` tự tải Python 3.11).
+
+```bash
+make setup                  # tạo môi trường "bdg2" (.venv, Python 3.11) + cài thư viện + git hooks
+source .venv/bin/activate   # dòng lệnh hiện (bdg2)
+make data                   # tải toàn bộ BDG2 (~370 MB) vào data/raw/
+```
 
 ## Chạy end-to-end
 
-Yêu cầu: Python 3.11, Java 17, Docker. Version thư viện xem `requirements-spark.txt`.
+```bash
+make infra-up                          # Kafka
+make task1                             # Task 1: CSV -> Bronze -> Silver -> kiểm tra (~3-4 phút)
+python ml_model/train_baseline.py      # Silver -> model
+python streaming/streaming_job.py      # Kafka -> model -> Gold
+python streaming/kafka_producer.py     # replay Silver (2017) vào Kafka
+streamlit run dashboard/dashboard.py   # http://localhost:8501
+```
 
-1. Tải BDG2 (`electricity.csv`, `weather.csv`, `metadata.csv`) vào `data_pipeline/raw/`.
-2. `docker compose -f dashboard/docker-compose.yml up -d`
-3. `python data_pipeline/ingest.py` → Bronze
-4. `python data_pipeline/preprocess.py` → Silver
-5. `python ml_model/train_baseline.py` → model
-6. `python streaming/streaming_job.py` và `python streaming/kafka_producer.py` → Gold
-7. `streamlit run dashboard/dashboard.py` → http://localhost:8501
+## Phát triển
 
-Chi tiết từng bước xem `README.md` trong mỗi thư mục. Phân công và hợp đồng dữ liệu xem `TASKS.md`.
+```bash
+make lint     # ruff kiểm tra PEP 8
+make format   # ruff tự sửa và định dạng
+make test     # pytest
+```
+
+Quy tắc làm việc nhóm, hợp đồng dữ liệu và quy ước commit xem [`docs/TASKS.md`](docs/TASKS.md). Chi tiết từng phần xem `README.md` trong mỗi thư mục.
