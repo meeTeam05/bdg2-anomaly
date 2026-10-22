@@ -65,7 +65,7 @@ Các loại ngoài điện thất thường, phụ thuộc mùa, sai số ~100%,
 | Random Forest | log1p | 90,27 | 30,93 | 0,536 | 28,1% | 31 |
 | GBT | log1p | 88,72 | 31,37 | 0,571 | 28,4% | 70 |
 
-Tham số: RF `numTrees=50, maxDepth=10`; GBT `maxIter=50, maxDepth=6`; `maxMemoryInMB=128` (tránh hết bộ nhớ khi 32 core chạy song song); LR dùng one-hot. Cấu hình: `SPARK_DRIVER_MEMORY=6g`, `local[*]` 32 core.
+Tham số: RF `numTrees=50, maxDepth=10`; GBT `maxIter=50, maxDepth=6`; `maxMemoryInMB=64` (32 core chạy song song dùng chung bộ nhớ driver; 128 MB đã tràn bộ nhớ 4 GB); LR dùng one-hot. Cấu hình: `SPARK_DRIVER_MEMORY=6g`, `local[*]` 32 core.
 
 **Nhận xét:** báo động giả giảm từ 77,7% xuống ~27–29%. Các model chỉ nhỉnh hơn "chỉ hồ sơ" về RMSLE, gần như bằng về báo động giả: ~27% số giờ bình thường vẫn lệch quá 28% so với thói quen của đồng hồ. Muốn giảm tiếp cần (a) feature "gần đây" (vd. cùng giờ hôm qua — Task 3 phải giữ trạng thái) hoặc (b) ngưỡng riêng theo từng đồng hồ thay cho 28% cố định (cần cả nhóm chốt). Bước 6 (`evaluate.py`, injected anomaly test) sẽ cho số liệu để quyết định.
 

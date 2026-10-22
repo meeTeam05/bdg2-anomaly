@@ -11,7 +11,7 @@ def build_spark(app_name: str, extra_packages: list[str] | None = None):
     """Create (or reuse) a SparkSession with Delta Lake enabled.
 
     extra_packages: Maven coordinates on top of Delta, e.g. the Kafka connector
-    for streaming. Driver memory comes from SPARK_DRIVER_MEMORY (default 4g),
+    for streaming. Driver memory comes from SPARK_DRIVER_MEMORY (default 6g),
     enough for the full BDG2 dataset on a laptop.
     """
     # Imported lazily so `common.config` stays usable without pyspark (dashboard).
@@ -29,7 +29,7 @@ def build_spark(app_name: str, extra_packages: list[str] | None = None):
     builder = (
         SparkSession.builder.appName(app_name)
         .master(os.environ.get("SPARK_MASTER", "local[*]"))
-        .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "4g"))
+        .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "6g"))
         .config("spark.sql.session.timeZone", TIMEZONE)
         # Smaller shuffle partitions (default 64m): with 32 cores sharing one 4-6 GB driver
         # heap, 64m sort buffers per task hit Java heap limits on the full dataset.

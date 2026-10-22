@@ -58,9 +58,10 @@ TARGETS = ["raw", "log1p"]
 def build_regressor(name: str, label_col: str, prediction_col: str):
     """Return an unfitted regressor; tree sizes are kept moderate for the full dataset."""
     common = {"featuresCol": "features", "labelCol": label_col, "predictionCol": prediction_col}
-    # Split-statistics buffer per task (default 256 MB). 32 cores x 256 MB overflows a 6 GB
-    # driver heap in local mode; a smaller buffer only means more passes, same trees.
-    trees = {"maxMemoryInMB": 128, "seed": 42}
+    # Split-statistics buffer per task (default 256 MB). In local mode all 32 cores share the
+    # driver heap: 32 x 128 MB already filled a 4 GB heap. 32 x 64 MB = 2 GB leaves room for
+    # the rest; a smaller buffer only means more passes over the data, same trees.
+    trees = {"maxMemoryInMB": 64, "seed": 42}
     if name == "lr":
         return LinearRegression(**common)
     if name == "rf":

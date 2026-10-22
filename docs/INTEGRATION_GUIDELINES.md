@@ -22,7 +22,7 @@ Bổ sung cho `docs/TASKS.md`: chuẩn kỹ thuật dùng chung + các điểm c
 |---|---|
 | `pyproject.toml` | metadata project + **toàn bộ dependency** (extras `spark`, `dashboard`, `dev`) + cấu hình ruff, pytest. Thay cho `requirements-spark.txt` và các `requirements.txt` riêng |
 | `common/config.py` | đường dẫn mọi tầng, tất cả nằm trong `data/` (`RAW_DATA_DIR`, `BRONZE_DIR`, `CLEAN_DATA_PATH`, `MODEL_PATH`, `ENERGY_RESULTS_PATH`, `ENERGY_RESULTS_CHECKPOINT`; đổi thư mục gốc bằng biến môi trường `BDG2_DATA_DIR`), `PARTITION_COLUMN = "site_id"`, `TEST_START`, `THRESHOLD_RATIO = 0.28`, `TIMEZONE = "UTC"`, `CLEAN_DATA_SCHEMA` (Task1→2,3, có `site_id`), `ENERGY_RESULTS_SCHEMA` (Task3→4), `to_spark_struct_type()` |
-| `common/spark_session.py` | `build_spark(app_name, extra_packages=None)`: `local[*]`, Delta Lake, timezone UTC, driver memory 4g (đổi bằng `SPARK_DRIVER_MEMORY`). Streaming truyền Kafka connector qua `extra_packages` |
+| `common/spark_session.py` | `build_spark(app_name, extra_packages=None)`: `local[*]`, Delta Lake, timezone UTC, driver memory 6g (đổi bằng `SPARK_DRIVER_MEMORY`). Streaming truyền Kafka connector qua `extra_packages` |
 | `Makefile` | `make setup` / `data` / `lint` / `format` / `test` / `infra-up` / `infra-down` |
 | `.pre-commit-config.yaml`, `.github/workflows/ci.yml` | ruff + kiểm tra file lớn khi commit; CI chạy ruff + pytest cho mỗi PR |
 
