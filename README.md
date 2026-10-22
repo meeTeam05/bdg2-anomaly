@@ -49,8 +49,7 @@ make data                   # tải toàn bộ BDG2 (~370 MB) vào data/raw/
 
 ```bash
 make infra-up                          # Kafka
-python data_pipeline/ingest.py         # CSV -> Bronze
-python data_pipeline/preprocess.py     # Bronze -> Silver
+make task1                             # Task 1: CSV -> Bronze -> Silver -> kiểm tra (~3-4 phút)
 python ml_model/train_baseline.py      # Silver -> model
 python streaming/streaming_job.py      # Kafka -> model -> Gold
 python streaming/kafka_producer.py     # replay Silver (2017) vào Kafka

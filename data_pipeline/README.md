@@ -19,6 +19,14 @@ CSV gốc BDG2 → **Bronze** → **Silver** (Delta Lake), xử lý **toàn bộ
 
 ## Cách chạy
 
+Chạy cả Task 1 bằng 1 lệnh (từ gốc repo, sau `make setup` và `make data`):
+
+```bash
+make task1    # ingest -> preprocess -> validate, dừng ngay nếu 1 bước lỗi (~3-4 phút)
+```
+
+Hoặc từng bước:
+
 ```bash
 # từ gốc repo, sau `make setup`, `make data` và `source .venv/bin/activate`
 python data_pipeline/ingest.py                    # CSV -> Bronze (cả 10 nguồn)

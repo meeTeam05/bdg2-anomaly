@@ -31,6 +31,9 @@ def build_spark(app_name: str, extra_packages: list[str] | None = None):
         .master(os.environ.get("SPARK_MASTER", "local[*]"))
         .config("spark.driver.memory", os.environ.get("SPARK_DRIVER_MEMORY", "4g"))
         .config("spark.sql.session.timeZone", TIMEZONE)
+        # Smaller shuffle partitions (default 64m): with 32 cores sharing one 4-6 GB driver
+        # heap, 64m sort buffers per task hit Java heap limits on the full dataset.
+        .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "32m")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config(
             "spark.sql.catalog.spark_catalog",
