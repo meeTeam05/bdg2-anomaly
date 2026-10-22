@@ -39,6 +39,13 @@ METER_TYPES = [
     "solar",  # generation, not consumption: keep in Silver, skip for anomaly detection
 ]
 
+# Meter types the baseline model and anomaly detection cover (Task 2 trains on these,
+# Task 3 scores only these). Other meters stay in Silver. Electricity only: on the 2017
+# test year the per-meter profile alone mis-flags ~29% of normal electricity hours vs
+# 64-86% for the seasonal/intermittent types (relative error ~100%), so a single 28%
+# threshold cannot work for them (ml_model/README.md).
+ANOMALY_METER_TYPES = ["electricity"]
+
 # Time-based split: train on 2016, test on 2017.
 # Task 2 splits on it; Task 3 replays only timestamp >= TEST_START.
 TEST_START = "2017-01-01 00:00:00"

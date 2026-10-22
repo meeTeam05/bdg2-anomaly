@@ -112,7 +112,8 @@ bdg2-anomaly/
 - Đánh giá RMSE/MAE (tổng thể và theo `primary_use`), so với baseline "trung bình cộng". Chọn model tốt nhất theo RMSE.
 - **Injected anomaly test (OFFLINE, không trùng với Task 3):** tự tiêm 1 đoạn bất thường giả vào dữ liệu test tĩnh, chạy qua model + ngưỡng 1 lần, kiểm chứng **ngưỡng residual hoạt động đúng về mặt thống kê**. Kiểm tra riêng tỉ lệ báo động giả ở các tòa nhà có tiêu thụ rất nhỏ (baseline gần 0 dễ vượt ngưỡng 28%) và đề xuất cách xử lý nếu cần.
 - Ghi lại: số dòng train/test, thời gian train từng model, cấu hình Spark.
-**Output bắt buộc:** model tốt nhất lưu tại `data/models/baseline_model/`, load được bằng `PipelineModel.load(...)`, input là đúng các cột của schema Silver (mục 3), output có cột `prediction` (nếu train trên `log1p` thì Task 3 phải biết để `expm1` — ghi rõ trong `ml_model/README.md`).
+**Phạm vi:** model và phát hiện bất thường chỉ cho `ANOMALY_METER_TYPES` (`common/config.py`, hiện là `electricity`) — các loại khác sai số tương đối ~100% nên ngưỡng 28% không dùng được (số liệu ở `ml_model/README.md`). Feature gồm thêm **hồ sơ đồng hồ** từ 2016 (`ml_model/meter_profile.py`).
+**Output bắt buộc:** bảng hồ sơ tại `data/models/meter_profile/` (`METER_PROFILE_PATH`) và model tốt nhất lưu tại `data/models/baseline_model/`, load được bằng `PipelineModel.load(...)`, input là đúng các cột của schema Silver (mục 3), output có cột `prediction` (nếu train trên `log1p` thì Task 3 phải biết để `expm1` — ghi rõ trong `ml_model/README.md`).
 **Done khi:** Nguyên load được model này trong `streaming_job.py` và ra được `prediction` không lỗi.
 
 ### Task 3 — Streaming Pipeline: Kafka → Spark Structured Streaming → Gold (Nguyên)
@@ -120,7 +121,7 @@ bdg2-anomaly/
 **Việc làm:**
 - Kafka Producer: multithreading, **mỗi thread phụ trách 1 site** (19 site), mỗi tick gửi lô bản ghi của **tất cả tòa nhà trong site đó** tại cùng 1 timestamp, đều đặn (2–3s/tick). Không tạo 1 thread cho mỗi tòa nhà (~1.600 thread là quá nhiều).
 - **Kịch bản tăng đột biến (LIVE DEMO, khác với injected anomaly test của Mai ở Task 2):** lập trình sẵn 1-2 tòa nhà tự tăng đột biến sau X tick khi đang chạy streaming — mục đích là **có cái để demo trực quan trước hội đồng**, không phải để kiểm chứng thống kê.
-- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng lấy từ `common/config.py`, không hardcode).
+- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → chỉ giữ `ANOMALY_METER_TYPES` → gắn hồ sơ bằng `add_profile_features()` (bảng `METER_PROFILE_PATH`) → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng lấy từ `common/config.py`, không hardcode).
 - Ghi kết quả vào Delta tầng Gold, **partition theo `site_id`**, có checkpoint tại `data/checkpoints/energy_results`.
 - Ghi lại: throughput (bản ghi/giây), độ trễ mỗi micro-batch.
 **Output bắt buộc:** bảng Delta Lake tại `data/gold/energy_results` đúng schema mục 3

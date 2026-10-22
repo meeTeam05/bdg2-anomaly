@@ -24,6 +24,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
 from common.config import (
+    ANOMALY_METER_TYPES,
     CLEAN_DATA_PATH,
     METER_PROFILE_PATH,
     MODEL_PATH,
@@ -31,7 +32,12 @@ from common.config import (
     THRESHOLD_RATIO,
 )
 from common.spark_session import build_spark
-from ml_model.meter_profile import PROFILE_FEATURES, add_profile_features, build_profile
+from ml_model.meter_profile import (
+    PROFILE_FEATURES,
+    add_profile_features,
+    build_profile,
+    profile_prediction_log,
+)
 
 CATEGORICAL = ["meter_type", "primary_use", "site_id"]
 NUMERIC = [
@@ -44,8 +50,6 @@ NUMERIC = [
 ]
 LABEL = "meter_reading"
 LOG_LABEL = "log1p_meter_reading"
-# Solar meters generate power; anomaly detection covers consumption meters only.
-EXCLUDED_METER_TYPES = ["solar"]
 
 MODELS = ["lr", "rf", "gbt"]
 TARGETS = ["raw", "log1p"]
@@ -54,12 +58,15 @@ TARGETS = ["raw", "log1p"]
 def build_regressor(name: str, label_col: str, prediction_col: str):
     """Return an unfitted regressor; tree sizes are kept moderate for the full dataset."""
     common = {"featuresCol": "features", "labelCol": label_col, "predictionCol": prediction_col}
+    # Split-statistics buffer per task (default 256 MB). 32 cores x 256 MB overflows a 6 GB
+    # driver heap in local mode; a smaller buffer only means more passes, same trees.
+    trees = {"maxMemoryInMB": 128, "seed": 42}
     if name == "lr":
         return LinearRegression(**common)
     if name == "rf":
-        return RandomForestRegressor(numTrees=50, maxDepth=10, seed=42, **common)
+        return RandomForestRegressor(numTrees=50, maxDepth=10, **trees, **common)
     if name == "gbt":
-        return GBTRegressor(maxIter=50, maxDepth=6, seed=42, **common)
+        return GBTRegressor(maxIter=50, maxDepth=6, **trees, **common)
     raise ValueError(f"unknown model {name!r}")
 
 
@@ -135,6 +142,12 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", choices=MODELS, default=MODELS)
     parser.add_argument("--targets", nargs="+", choices=TARGETS, default=TARGETS)
     parser.add_argument(
+        "--meter-types",
+        nargs="+",
+        default=ANOMALY_METER_TYPES,
+        help="meter types to train on (default: ANOMALY_METER_TYPES in common/config.py)",
+    )
+    parser.add_argument(
         "--no-profile", action="store_true", help="train without the per-meter profile features"
     )
     parser.add_argument(
@@ -150,7 +163,8 @@ def main() -> None:
     spark.sparkContext.setLogLevel("WARN")
 
     silver = spark.read.format("delta").load(CLEAN_DATA_PATH)
-    data = silver.filter(~F.col("meter_type").isin(EXCLUDED_METER_TYPES))
+    data = silver.filter(F.col("meter_type").isin(args.meter_types))
+    print(f"Meter types: {args.meter_types}")
     use_profile = not args.no_profile
     # Profile from ALL 2016 rows (even when sampling) so each meter's "normal" is accurate.
     profile = build_profile(data).cache() if use_profile else None
@@ -168,8 +182,8 @@ def main() -> None:
     mean_reading = train.agg(F.avg(LABEL)).first()[0]
     results = [("mean", "raw", score(test.withColumn("prediction", F.lit(mean_reading))), 0.0)]
     if use_profile:
-        # No model at all: predict the meter's usual value for that hour and day type.
-        naive = test.withColumn("prediction", F.expm1("profile_slot_log"))
+        # No model at all: the meter's usual value for that hour, day type and season.
+        naive = test.withColumn("prediction", F.expm1(profile_prediction_log()))
         results.append(("profile", "-", score(naive), 0.0))
     best = None  # (rmsle, model, name, target)
     for target in args.targets:
