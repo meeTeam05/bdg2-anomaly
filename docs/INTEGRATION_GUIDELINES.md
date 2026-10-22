@@ -21,7 +21,7 @@ Bổ sung cho `docs/TASKS.md`: chuẩn kỹ thuật dùng chung + các điểm c
 | File | Nội dung |
 |---|---|
 | `pyproject.toml` | metadata project + **toàn bộ dependency** (extras `spark`, `dashboard`, `dev`) + cấu hình ruff, pytest. Thay cho `requirements-spark.txt` và các `requirements.txt` riêng |
-| `common/config.py` | đường dẫn mọi tầng, tất cả nằm trong `data/` (`RAW_DATA_DIR`, `BRONZE_DIR`, `CLEAN_DATA_PATH`, `MODEL_PATH`, `ENERGY_RESULTS_PATH`, `ENERGY_RESULTS_CHECKPOINT`; đổi thư mục gốc bằng biến môi trường `BDG2_DATA_DIR`), `PARTITION_COLUMN = "site_id"`, `TEST_START`, `THRESHOLD_RATIO = 0.28`, `TIMEZONE = "UTC"`, `CLEAN_DATA_SCHEMA` (Task1→2,3, có `site_id`), `ENERGY_RESULTS_SCHEMA` (Task3→4), `to_spark_struct_type()` |
+| `common/config.py` | đường dẫn mọi tầng, tất cả nằm trong `data/` (`RAW_DATA_DIR`, `BRONZE_DIR`, `CLEAN_DATA_PATH`, `MODEL_PATH`, `ENERGY_RESULTS_PATH`, `ENERGY_RESULTS_CHECKPOINT`; đổi thư mục gốc bằng biến môi trường `BDG2_DATA_DIR`), `PARTITION_COLUMN = "site_id"`, `TEST_START`, `METER_PROFILE_PATH`, `METER_THRESHOLDS_PATH`, `ANOMALY_METER_TYPES`, `THRESHOLD_RATIO = 0.28` (dự phòng), `ANOMALY_PERSISTENCE_HOURS = 3`, `TIMEZONE = "UTC"`, `CLEAN_DATA_SCHEMA` (Task1→2,3, có `site_id`), `ENERGY_RESULTS_SCHEMA` (Task3→4), `to_spark_struct_type()` |
 | `common/spark_session.py` | `build_spark(app_name, extra_packages=None)`: `local[*]`, Delta Lake, timezone UTC, driver memory 6g (đổi bằng `SPARK_DRIVER_MEMORY`). Streaming truyền Kafka connector qua `extra_packages` |
 | `Makefile` | `make setup` / `data` / `lint` / `format` / `test` / `infra-up` / `infra-down` |
 | `.pre-commit-config.yaml`, `.github/workflows/ci.yml` | ruff + kiểm tra file lớn khi commit; CI chạy ruff + pytest cho mỗi PR |
@@ -69,4 +69,4 @@ spark = build_spark("train_baseline")
 | 9 | Xử lý message lỗi/trễ trong Kafka consumer chưa có quy ước | Streaming job crash hoặc âm thầm mất data | Crash, skip, hay log riêng khi gặp message sai schema/trễ |
 | 10 | Chưa có runbook end-to-end cho buổi demo | Lần đầu chạy full pipeline rơi đúng hôm bảo vệ mới lộ lỗi tích hợp | Ai viết `docs/RUNBOOK.md`, viết trước deadline nào |
 | 11 | ~~Chỉ `electricity` hay cả 8 loại đồng hồ?~~ | — | **Đã chốt:** cả 8 loại (`METER_TYPES`), thêm cột `meter_type` vào cả 2 schema; khóa = (`building_id`, `meter_type`, `timestamp`). `solar` không dùng cho phát hiện bất thường |
-| 12 | Tòa nhà tiêu thụ rất nhỏ (baseline ≈ 0) dễ vượt ngưỡng 28% liên tục | Dashboard ngập báo động giả | Task 2 đo tỉ lệ báo động giả, đề xuất ngưỡng tối thiểu tuyệt đối nếu cần |
+| 12 | ~~Báo động giả với ngưỡng 28% cố định~~ | — | **Đã chốt:** ngưỡng riêng từng đồng hồ (`METER_THRESHOLDS_PATH`, p99 quý 1/2017) + vượt 3 giờ liền (`ANOMALY_PERSISTENCE_HOURS`); báo nhầm 29% → 4%. Task 3 phải giữ trạng thái 2 giờ trước của mỗi đồng hồ. Vài đồng hồ có mức dùng rất nhỏ/thất thường có ngưỡng rất lớn (tối đa ~7.400%) nên gần như không bao giờ cảnh báo |

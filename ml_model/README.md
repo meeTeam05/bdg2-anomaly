@@ -22,7 +22,11 @@ python ml_model/train_baseline.py --no-profile       # so sánh: không dùng h�
 python ml_model/train_baseline.py --meter-types electricity chilledwater   # thử loại đồng hồ khác
 
 # Model cuối: 100% tập train, lưu model tốt nhất (theo RMSLE) + bảng hồ sơ
-SPARK_DRIVER_MEMORY=6g python ml_model/train_baseline.py --models rf --targets raw --sample 1 --save
+SPARK_DRIVER_MEMORY=10g python ml_model/train_baseline.py --models rf --targets raw --sample 1 --save
+
+# Bước 6: injected anomaly test (cần model đã lưu ở trên, ~45 giây)
+SPARK_DRIVER_MEMORY=10g python ml_model/evaluate.py                       # so 6 quy tắc cảnh báo
+SPARK_DRIVER_MEMORY=10g python ml_model/evaluate.py --save meter_p99_3h   # lưu ngưỡng của quy tắc đã chọn
 ```
 
 Mặc định chỉ train trên `ANOMALY_METER_TYPES` (`common/config.py`, hiện là `electricity`).
@@ -34,6 +38,7 @@ Mặc định chỉ train trên `ANOMALY_METER_TYPES` (`common/config.py`, hiệ
 | Model | `MODEL_PATH` = `data/models/baseline_model/` | `PipelineModel.load(MODEL_PATH)`, cột ra `prediction` (đơn vị `meter_reading`, kể cả khi train bằng `log1p`) |
 | Hồ sơ đồng hồ | `METER_PROFILE_PATH` = `data/models/meter_profile/` | Bảng Delta; gọi `add_profile_features(df, profile)` (`ml_model/meter_profile.py`) **trước** `model.transform` |
 | Loại đồng hồ | `ANOMALY_METER_TYPES` | Chỉ chấm điểm các loại này; đồng hồ không có trong hồ sơ bị loại (không có lịch sử 2016) |
+| Ngưỡng bất thường | `METER_THRESHOLDS_PATH` = `data/models/meter_thresholds/` | Bảng Delta (`building_id`, `meter_type`, `anomaly_threshold`); `is_anomaly` khi `abs(residual) > baseline * anomaly_threshold` liên tục `ANOMALY_PERSISTENCE_HOURS` (3) giờ; thiếu ngưỡng thì dùng `THRESHOLD_RATIO` |
 
 ## Quá trình và kết quả
 
@@ -83,3 +88,24 @@ Lệnh: `SPARK_DRIVER_MEMORY=10g python ml_model/train_baseline.py --models rf -
 - RF 50 cây, `maxDepth=10`. Chạy 100% cần `SPARK_DRIVER_MEMORY=10g`: RF giữ 1 trọng số cho mỗi cây trên mỗi dòng (11,5 triệu dòng train), 6 GB bị tràn bộ nhớ.
 - **Train trên 100% không tốt hơn mẫu 5%** (RMSLE 0,483 cả hai): giới hạn nằm ở feature, không phải lượng dữ liệu.
 - RF tốt hơn "chỉ hồ sơ" về sai số (RMSLE 0,483 so với 0,569) nhưng **báo động giả gần bằng** (28,6% so với 26,8%). Bước 6 (`evaluate.py`) sẽ đo khả năng bắt bất thường thật và đề xuất ngưỡng.
+
+## Bước 6: Injected anomaly test (`evaluate.py`)
+
+Câu hỏi: quy tắc cảnh báo có **bắt được bất thường thật** mà **không báo nhầm quá nhiều** không? Giảm báo nhầm thì dễ (nâng ngưỡng lên) nhưng sẽ bỏ sót, nên phải đo cả hai.
+
+- Dự đoán toàn bộ điện năm 2017 bằng model đã lưu. **Quý 1** (2.815.847 dòng) để hiệu chỉnh: với mỗi đồng hồ, đo độ lệch bình thường `|thực tế − baseline| / baseline`, lấy phân vị 95% / 99% làm **ngưỡng riêng**. **Tháng 4–12** (8.475.735 dòng) để kiểm tra.
+- Tiêm vào mỗi đồng hồ **1 khoảng 24 giờ** bất thường giả: ×1,5 (lãng phí), ×2 (lãng phí nặng), ×0,5 (thiết bị tắt/hỏng). "Bắt được" = có ít nhất 1 giờ trong khoảng đó bị cảnh báo; "báo nhầm" = % giờ bình thường bị cảnh báo.
+- Tiêu chí chọn (đặt trước khi chạy): bắt được nhiều ×1,5 nhất với báo nhầm ≤ 5%.
+
+| Quy tắc | Báo nhầm | Bắt ×1,5 | Bắt ×2 | Bắt ×0,5 |
+|---|---|---|---|---|
+| Cố định 28%, 1 giờ (thiết kế ban đầu) | 29,0% | 96,6% | 99,2% | 99,7% |
+| Cố định 28%, 3 giờ liền | 21,8% | 90,6% | 98,2% | 98,9% |
+| Ngưỡng riêng p95, 1 giờ | 11,9% | 80,7% | 91,7% | 79,6% |
+| Ngưỡng riêng p95, 3 giờ liền | 8,0% | 71,6% | 87,6% | 75,9% |
+| Ngưỡng riêng p99, 1 giờ | 5,6% | 71,6% | 87,4% | 63,1% |
+| **Ngưỡng riêng p99, 3 giờ liền (đã chọn)** | **4,0%** | 59,4% | 81,9% | 58,8% |
+
+**Kết luận:** quy tắc cũ bắt gần hết nhưng báo nhầm 29% số giờ bình thường, nên trên dashboard gần như tòa nhà nào cũng luôn có cảnh báo. Quy tắc mới giảm báo nhầm **khoảng 7 lần (29% → 4%)**, vẫn bắt 82% trường hợp lãng phí gấp đôi; đổi lại bỏ sót nhiều hơn với bất thường nhẹ (×1,5 bắt 59%). Nếu nhóm ưu tiên bắt nhiều hơn, `meter_p95_3h` (báo nhầm 8%, bắt ×1,5 72%) là lựa chọn kế tiếp.
+
+**Giới hạn:** ngưỡng trung vị 54%, 90% đồng hồ ≤ 148%, nhưng vài đồng hồ có mức dùng rất nhỏ hoặc rất thất thường có ngưỡng rất lớn (tối đa khoảng 7.400%) nên gần như không bao giờ cảnh báo. Quý 1/2017 dùng để hiệu chỉnh cũng nằm trong giai đoạn Task 3 replay.

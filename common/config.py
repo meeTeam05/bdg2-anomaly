@@ -20,6 +20,8 @@ CLEAN_DATA_PATH = str(DATA_DIR / "silver" / "clean_data")
 MODEL_PATH = str(DATA_DIR / "models" / "baseline_model")
 # Per-meter "normal" profile from 2016; Task 3 joins it before calling the model.
 METER_PROFILE_PATH = str(DATA_DIR / "models" / "meter_profile")
+# Per-meter anomaly thresholds calibrated by ml_model/evaluate.py --save.
+METER_THRESHOLDS_PATH = str(DATA_DIR / "models" / "meter_thresholds")
 ENERGY_RESULTS_PATH = str(DATA_DIR / "gold" / "energy_results")
 ENERGY_RESULTS_CHECKPOINT = str(DATA_DIR / "checkpoints" / "energy_results")
 
@@ -50,9 +52,14 @@ ANOMALY_METER_TYPES = ["electricity"]
 # Task 2 splits on it; Task 3 replays only timestamp >= TEST_START.
 TEST_START = "2017-01-01 00:00:00"
 
-# is_anomaly = abs(residual) > baseline * THRESHOLD_RATIO
-# Used by Task 2 (evaluation) and Task 3 (streaming).
+# Anomaly rule (Task 3 Gold, decided by the injected anomaly test in ml_model/evaluate.py):
+#   exceeds    = abs(residual) > baseline * anomaly_threshold
+#   is_anomaly = exceeds for ANOMALY_PERSISTENCE_HOURS consecutive hours of that meter
+# anomaly_threshold is per meter (METER_THRESHOLDS_PATH: 99th percentile of the meter's
+# normal deviation in 2017-Q1); THRESHOLD_RATIO is the fallback for meters without one.
+# On 2017-04..12 this cuts false alarms from 29% (fixed 28%, 1 h) to 4% of normal hours.
 THRESHOLD_RATIO = 0.28
+ANOMALY_PERSISTENCE_HOURS = 3
 
 # All timestamps are UTC. Convert to local time only for display (Task 4).
 # hour_of_day / day_of_week / is_weekend are computed from the site's LOCAL time,

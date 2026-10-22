@@ -110,7 +110,7 @@ bdg2-anomaly/
 - Train + so sánh: Linear Regression, Random Forest, GBT. Có thể thử target `log1p(meter_reading)` vì quy mô tòa nhà chênh lệch lớn.
 - Được dùng sample để dò tham số cho nhanh, nhưng **model cuối cùng phải train trên toàn bộ tập train**.
 - Đánh giá RMSE/MAE (tổng thể và theo `primary_use`), so với baseline "trung bình cộng". Chọn model tốt nhất theo RMSE.
-- **Injected anomaly test (OFFLINE, không trùng với Task 3):** tự tiêm 1 đoạn bất thường giả vào dữ liệu test tĩnh, chạy qua model + ngưỡng 1 lần, kiểm chứng **ngưỡng residual hoạt động đúng về mặt thống kê**. Kiểm tra riêng tỉ lệ báo động giả ở các tòa nhà có tiêu thụ rất nhỏ (baseline gần 0 dễ vượt ngưỡng 28%) và đề xuất cách xử lý nếu cần.
+- **Injected anomaly test (OFFLINE, không trùng với Task 3):** tự tiêm 1 đoạn bất thường giả vào dữ liệu test tĩnh, chạy qua model + ngưỡng 1 lần, kiểm chứng **ngưỡng residual hoạt động đúng về mặt thống kê**. **Đã làm (`ml_model/evaluate.py`):** so 6 quy tắc, chọn ngưỡng riêng từng đồng hồ (p99) + vượt 3 giờ liền, lưu bảng ngưỡng cho Task 3.
 - Ghi lại: số dòng train/test, thời gian train từng model, cấu hình Spark.
 **Phạm vi:** model và phát hiện bất thường chỉ cho `ANOMALY_METER_TYPES` (`common/config.py`, hiện là `electricity`) — các loại khác sai số tương đối ~100% nên ngưỡng 28% không dùng được (số liệu ở `ml_model/README.md`). Feature gồm thêm **hồ sơ đồng hồ** từ 2016 (`ml_model/meter_profile.py`).
 **Output bắt buộc:** bảng hồ sơ tại `data/models/meter_profile/` (`METER_PROFILE_PATH`) và model tốt nhất lưu tại `data/models/baseline_model/`, load được bằng `PipelineModel.load(...)`, input là đúng các cột của schema Silver (mục 3), output có cột `prediction` (nếu train trên `log1p` thì Task 3 phải biết để `expm1` — ghi rõ trong `ml_model/README.md`).
@@ -121,7 +121,7 @@ bdg2-anomaly/
 **Việc làm:**
 - Kafka Producer: multithreading, **mỗi thread phụ trách 1 site** (19 site), mỗi tick gửi lô bản ghi của **tất cả tòa nhà trong site đó** tại cùng 1 timestamp, đều đặn (2–3s/tick). Không tạo 1 thread cho mỗi tòa nhà (~1.600 thread là quá nhiều).
 - **Kịch bản tăng đột biến (LIVE DEMO, khác với injected anomaly test của Mai ở Task 2):** lập trình sẵn 1-2 tòa nhà tự tăng đột biến sau X tick khi đang chạy streaming — mục đích là **có cái để demo trực quan trước hội đồng**, không phải để kiểm chứng thống kê.
-- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → chỉ giữ `ANOMALY_METER_TYPES` → gắn hồ sơ bằng `add_profile_features()` (bảng `METER_PROFILE_PATH`) → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` (ngưỡng lấy từ `common/config.py`, không hardcode).
+- Spark Structured Streaming: đọc Kafka → parse JSON theo schema Silver → chỉ giữ `ANOMALY_METER_TYPES` → gắn hồ sơ bằng `add_profile_features()` (bảng `METER_PROFILE_PATH`) → load model Task 2 → tính `baseline`, `residual`, `is_anomaly` theo quy tắc ở mục 3 (ngưỡng riêng từng đồng hồ ở `METER_THRESHOLDS_PATH`, vượt ngưỡng `ANOMALY_PERSISTENCE_HOURS` = 3 giờ liền — cần giữ trạng thái 2 giờ trước của mỗi đồng hồ; hằng số lấy từ `common/config.py`, không hardcode).
 - Ghi kết quả vào Delta tầng Gold, **partition theo `site_id`**, có checkpoint tại `data/checkpoints/energy_results`.
 - Ghi lại: throughput (bản ghi/giây), độ trễ mỗi micro-batch.
 **Output bắt buộc:** bảng Delta Lake tại `data/gold/energy_results` đúng schema mục 3
@@ -171,9 +171,9 @@ bdg2-anomaly/
 | `meter_reading` | double | giá trị thực tế |
 | `baseline` | double | model dự đoán |
 | `residual` | double | `meter_reading - baseline` |
-| `is_anomaly` | boolean | `abs(residual) > baseline * 0.28` |
+| `is_anomaly` | boolean | `abs(residual) > baseline * anomaly_threshold` liên tục `ANOMALY_PERSISTENCE_HOURS` (3) giờ của cùng đồng hồ |
 
-**Ngưỡng dùng chung:** `THRESHOLD_RATIO = 0.28` — khai báo 1 chỗ duy nhất (file `common/config.py`), Task 2 và Task 3 cùng import từ đó, không hardcode riêng mỗi nơi. Chi tiết cấu trúc `common/config.py` (bao gồm `CLEAN_DATA_SCHEMA`, `ENERGY_RESULTS_SCHEMA` dạng code) xem `docs/INTEGRATION_GUIDELINES.md` mục 1.
+**Quy tắc bất thường (đã đổi sau injected anomaly test của Task 2):** ngưỡng **riêng cho từng đồng hồ** `anomaly_threshold` = phân vị 99% độ lệch bình thường của đồng hồ đó (quý 1/2017), lưu ở bảng Delta `METER_THRESHOLDS_PATH` (`building_id`, `meter_type`, `anomaly_threshold`); đồng hồ không có ngưỡng dùng `THRESHOLD_RATIO = 0.28`. Chỉ báo bất thường khi vượt ngưỡng **3 giờ liền** (`ANOMALY_PERSISTENCE_HOURS`). Lý do: ngưỡng cố định 28% báo nhầm 29% số giờ bình thường; quy tắc mới còn 4%, vẫn bắt được 82% trường hợp lãng phí gấp đôi (bảng đầy đủ ở `ml_model/README.md`). Mọi hằng số khai báo 1 chỗ duy nhất (`common/config.py`), Task 2 và Task 3 cùng import, không hardcode. Chi tiết cấu trúc `common/config.py` (bao gồm `CLEAN_DATA_SCHEMA`, `ENERGY_RESULTS_SCHEMA` dạng code) xem `docs/INTEGRATION_GUIDELINES.md` mục 1.
 
 **Định dạng lưu trữ:** mọi bảng (Bronze, Silver, Gold) đều là **Delta Lake** (không dùng Parquet thuần).
 
