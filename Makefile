@@ -2,7 +2,8 @@
 COMPOSE := docker compose -f infra/docker-compose.yml
 RAW_URL := https://media.githubusercontent.com/media/buds-lab/building-data-genome-project-2/master/data
 METERS  := electricity chilledwater steam hotwater gas water irrigation solar
-PY      := .venv/bin/python
+BIN     := .venv/bin
+PY      := $(BIN)/python
 # Spark driver memory for the full dataset; override: make task1 SPARK_DRIVER_MEMORY=8g
 export SPARK_DRIVER_MEMORY ?= 6g
 
@@ -15,7 +16,7 @@ help:  ## list targets
 setup:  ## create the bdg2 venv (.venv, Python 3.11) with all extras + git hooks; needs uv
 	[ -d .venv ] || uv venv --python 3.11 --prompt bdg2 .venv
 	uv pip install --python .venv/bin/python -e ".[spark,dashboard,notebook,dev]"
-	.venv/bin/pre-commit install
+	$(BIN)/pre-commit install
 
 data:  ## download the full BDG2 raw dataset into data/raw (~370 MB)
 	mkdir -p data/raw
@@ -38,15 +39,15 @@ validate:  ## Task 1 step 4: check Silver against the data contract
 	$(PY) data_pipeline/validate_silver.py
 
 lint:  ## check style
-	ruff check .
-	ruff format --check .
+	$(BIN)/ruff check .
+	$(BIN)/ruff format --check .
 
 format:  ## auto-fix style
-	ruff check --fix .
-	ruff format .
+	$(BIN)/ruff check --fix .
+	$(BIN)/ruff format .
 
 test:  ## run all tests (exit code 5 = no tests collected yet)
-	pytest || [ $$? -eq 5 ]
+	$(BIN)/pytest || [ $$? -eq 5 ]
 
 infra-up:  ## start shared infrastructure (Kafka)
 	$(COMPOSE) up -d
