@@ -63,6 +63,7 @@ Màu và bố cục theo mockup "Energy Dashboard Final". `view.py` dựng HTML 
 - Chỉ đọc **168 giờ replay gần nhất**: timestamp mới nhất lấy từ thống kê file trong Delta log
   (không đọc dữ liệu), file nào nằm ngoài khoảng đó bị bỏ qua. Bộ nhớ không tăng theo thời gian chạy
   (~1.400 đồng hồ × 168 giờ ≈ 235 nghìn dòng).
+- Đo trên Gold thật (48 giờ, 1.403 đồng hồ, 18 site): lần vẽ đầu 1,9 s, các lần refresh sau 0,1 s.
 - `is_anomaly` lấy nguyên từ Gold (quy tắc ngưỡng riêng + 3 giờ liền của Task 3), dashboard không
   tính lại.
 

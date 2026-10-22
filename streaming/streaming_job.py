@@ -281,7 +281,9 @@ def monitor(spark, query, writer: BatchWriter, args):
         # awaitTermination re-raises the streaming error, so a failed query stops this loop.
         while not query.awaitTermination(args.trigger):
             for progress in query.recentProgress:
-                if progress["batchId"] <= last_batch_id:
+                # An idle trigger reports the NEXT batch id with 0 rows: skip it without
+                # marking that id as seen, or the real batch with that id would be lost.
+                if progress["batchId"] <= last_batch_id or progress["numInputRows"] == 0:
                     continue
                 last_batch_id = progress["batchId"]
                 m = batch_metrics(progress, writer.pop(progress["batchId"]))

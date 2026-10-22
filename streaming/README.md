@@ -112,15 +112,26 @@ pytest streaming -m "not integration"   # 41 test, không cần Kafka (~70 s)
 pytest streaming                        # + 14 test end-to-end, cần Kafka và mock_data
 ```
 
-Sau khi tích hợp với `main` (thêm `meter_type`, hồ sơ, ngưỡng riêng, quy tắc 3 giờ): 41 test không cần Kafka đạt trên Linux. **14 test end-to-end chưa chạy lại** vì máy tích hợp không có Docker; cần chạy trên máy có Kafka. `TEST_REPORT.md` là báo cáo của phiên bản trước khi tích hợp.
+Sau khi tích hợp với `main`: 41 test không cần Kafka và **14 test end-to-end đều đạt** (Kafka 4.2 KRaft
+chạy trực tiếp trên máy, cùng cấu hình `infra/docker-compose.yml`). Test end-to-end đã bắt được 1 lỗi
+của `monitor()`: báo cáo "idle" của Spark mang `batchId` của batch kế tiếp, làm batch thật bị bỏ khỏi
+log/CSV và không chạy compaction; đã sửa. `TEST_REPORT.md` là báo cáo của phiên bản trước khi tích hợp.
 
 ## Số liệu quy mô
 
-| | Mock (12 tòa nhà, 3 site) | Dữ liệu thật (đo bằng `BatchWriter`, không qua Kafka) |
+Chạy thật toàn bộ: Silver đầy đủ → `kafka_producer.py --hours 48` → Kafka → `streaming_job.py` với model,
+hồ sơ, ngưỡng thật → Gold → dashboard.
+
+| | Mock (12 tòa nhà, 3 site) | Dữ liệu thật, 48 giờ đầu 2017 qua Kafka |
 |---|---|---|
-| Bản ghi / tick | 12 | ~1.390 đồng hồ điện (input ~2.730 nếu gửi cả 8 loại) |
-| Thời gian xử lý 1 batch (1 giờ dữ liệu) | 2–3 s | 3,3–4,7 s (batch đầu 7,6 s) |
-| Độ trễ tối đa (gửi → Gold) | 4–10 s | TODO (cần Kafka) |
-| Throughput (bản ghi/giây) | ~4–12 (giới hạn bởi nhịp producer) | ~300–400 |
+| Bản ghi / tick | 12 | ~1.395 đồng hồ điện, 18 site (66.997 message, 0 lỗi gửi) |
+| Thời gian xử lý 1 batch | 2–3 s | trung vị 2,7 s, tối đa 3,3 s (1–2 tick mỗi batch) |
+| Độ trễ tối đa (gửi → Gold) | 4–10 s | trung vị 6,1 s, tối đa 7,3 s (gồm thời gian chờ trigger 5 s) |
+| Throughput (bản ghi/giây xử lý) | ~4–12 (giới hạn bởi nhịp producer) | trung vị ~950, tối đa ~1.120 |
+| Gold | 360/360 | 66.997 dòng, 1.403 đồng hồ, 0 dòng trùng |
+| Cảnh báo | — | 2,2% số giờ; 2 tòa nhà bị tạo đột biến (×3 từ tick 10) bị bắt từ giờ thứ 12 (quy tắc 3 giờ) đến hết |
+
+Tỉ lệ cảnh báo theo giờ có đỉnh ~9% vào chiều 2/1/2017 (UTC): thứ Hai nghỉ bù Tết ở Mỹ, model dự đoán
+mức của ngày làm việc nên nhiều tòa nhà thấp hơn hẳn baseline.
 
 Cấu hình Spark: `local[*]`, `spark.driver.memory=6g`, `spark.sql.shuffle.partitions=8`, `spark.databricks.delta.snapshotPartitions=4`, trigger 5s. Đo trên Linux, 32 core, Java 17, pyspark 4.2.0, delta-spark 4.4.0.
