@@ -18,6 +18,8 @@ RAW_DATA_DIR = str(DATA_DIR / "raw")  # BDG2 CSVs
 BRONZE_DIR = str(DATA_DIR / "bronze")  # one Delta table per source file
 CLEAN_DATA_PATH = str(DATA_DIR / "silver" / "clean_data")
 MODEL_PATH = str(DATA_DIR / "models" / "baseline_model")
+# Per-meter "normal" profile from 2016; Task 3 joins it before calling the model.
+METER_PROFILE_PATH = str(DATA_DIR / "models" / "meter_profile")
 ENERGY_RESULTS_PATH = str(DATA_DIR / "gold" / "energy_results")
 ENERGY_RESULTS_CHECKPOINT = str(DATA_DIR / "checkpoints" / "energy_results")
 

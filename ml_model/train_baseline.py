@@ -10,6 +10,7 @@ column is already in meter_reading units (Task 3 does not need to transform it).
 
 Run from the repo root (after data_pipeline/preprocess.py):
     python ml_model/train_baseline.py                          # 1% sample, all combinations
+    python ml_model/train_baseline.py --no-profile             # same, without meter profile
     python ml_model/train_baseline.py --models gbt --targets log1p --sample 1 --save
 """
 
@@ -22,8 +23,15 @@ from pyspark.ml.regression import GBTRegressor, LinearRegression, RandomForestRe
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from common.config import CLEAN_DATA_PATH, MODEL_PATH, TEST_START, THRESHOLD_RATIO
+from common.config import (
+    CLEAN_DATA_PATH,
+    METER_PROFILE_PATH,
+    MODEL_PATH,
+    TEST_START,
+    THRESHOLD_RATIO,
+)
 from common.spark_session import build_spark
+from ml_model.meter_profile import PROFILE_FEATURES, add_profile_features, build_profile
 
 CATEGORICAL = ["meter_type", "primary_use", "site_id"]
 NUMERIC = [
@@ -55,7 +63,9 @@ def build_regressor(name: str, label_col: str, prediction_col: str):
     raise ValueError(f"unknown model {name!r}")
 
 
-def build_pipeline(model_name: str = "lr", target: str = "raw") -> Pipeline:
+def build_pipeline(
+    model_name: str = "lr", target: str = "raw", use_profile: bool = True
+) -> Pipeline:
     """Feature stages + regressor; the fitted model outputs `prediction` in meter_reading units.
 
     target "log1p" trains on log1p(meter_reading) (column LOG_LABEL must exist at fit time)
@@ -79,7 +89,8 @@ def build_pipeline(model_name: str = "lr", target: str = "raw") -> Pipeline:
         category_features = [f"{c}_vec" for c in CATEGORICAL]
     else:
         category_features = [f"{c}_idx" for c in CATEGORICAL]
-    stages.append(VectorAssembler(inputCols=NUMERIC + category_features, outputCol="features"))
+    numeric = NUMERIC + (PROFILE_FEATURES if use_profile else [])
+    stages.append(VectorAssembler(inputCols=numeric + category_features, outputCol="features"))
 
     if target == "log1p":
         stages.append(build_regressor(model_name, LOG_LABEL, "log_prediction"))
@@ -124,7 +135,13 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", choices=MODELS, default=MODELS)
     parser.add_argument("--targets", nargs="+", choices=TARGETS, default=TARGETS)
     parser.add_argument(
-        "--save", action="store_true", help=f"save the best model (by RMSE) to {MODEL_PATH}"
+        "--no-profile", action="store_true", help="train without the per-meter profile features"
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        help=f"save the best model (by RMSLE) to {MODEL_PATH} and the profile to "
+        f"{METER_PROFILE_PATH}",
     )
     args = parser.parse_args()
 
@@ -134,8 +151,15 @@ def main() -> None:
 
     silver = spark.read.format("delta").load(CLEAN_DATA_PATH)
     data = silver.filter(~F.col("meter_type").isin(EXCLUDED_METER_TYPES))
+    use_profile = not args.no_profile
+    # Profile from ALL 2016 rows (even when sampling) so each meter's "normal" is accurate.
+    profile = build_profile(data).cache() if use_profile else None
     if args.sample < 1:
         data = data.sample(fraction=args.sample, seed=42)
+    if use_profile:
+        before = data.count()
+        data = add_profile_features(data, profile)
+        print(f"Rows of meters without 2016 history (dropped): {before - data.count():,}")
 
     train = with_log_label(data.filter(F.col("timestamp") < F.lit(TEST_START))).cache()
     test = data.filter(F.col("timestamp") >= F.lit(TEST_START)).cache()
@@ -143,17 +167,23 @@ def main() -> None:
 
     mean_reading = train.agg(F.avg(LABEL)).first()[0]
     results = [("mean", "raw", score(test.withColumn("prediction", F.lit(mean_reading))), 0.0)]
-    best = None  # (rmse, model, name, target)
+    if use_profile:
+        # No model at all: predict the meter's usual value for that hour and day type.
+        naive = test.withColumn("prediction", F.expm1("profile_slot_log"))
+        results.append(("profile", "-", score(naive), 0.0))
+    best = None  # (rmsle, model, name, target)
     for target in args.targets:
         for name in args.models:
             fit_started = time.perf_counter()
-            model = build_pipeline(name, target).fit(train)
+            model = build_pipeline(name, target, use_profile).fit(train)
             fit_seconds = time.perf_counter() - fit_started
             metrics = score(model.transform(test))
             results.append((name, target, metrics, fit_seconds))
-            print(f"{name} / {target}: RMSE {metrics['rmse']:,.2f}, {fit_seconds:.0f}s")
-            if best is None or metrics["rmse"] < best[0]:
-                best = (metrics["rmse"], model, name, target)
+            print(f"{name} / {target}: RMSLE {metrics['rmsle']:.3f}, {fit_seconds:.0f}s")
+            # RMSLE, not RMSE: RMSE is dominated by a few huge meters, and the flag rate can
+            # be gamed by over-predicting (a bigger baseline widens the 28% band).
+            if best is None or metrics["rmsle"] < best[0]:
+                best = (metrics["rmsle"], model, name, target)
 
     print(
         f"\n{'model':<6} {'target':<7} {'RMSE':>12} {'MAE':>10} {'RMSLE':>7} "
@@ -168,6 +198,9 @@ def main() -> None:
     if args.save and best is not None:
         best[1].write().overwrite().save(MODEL_PATH)
         print(f"Best model ({best[2]}, {best[3]}) saved to {MODEL_PATH}")
+        if use_profile:
+            profile.write.format("delta").mode("overwrite").save(METER_PROFILE_PATH)
+            print(f"Meter profile saved to {METER_PROFILE_PATH}")
     print(f"Done in {time.perf_counter() - started:.0f}s")
     spark.stop()
 
