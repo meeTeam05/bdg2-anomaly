@@ -8,7 +8,8 @@ PY      := $(BIN)/python
 export SPARK_DRIVER_MEMORY ?= 6g
 
 .DEFAULT_GOAL := help
-.PHONY: help setup data lint format test infra-up infra-down reset task1 ingest preprocess validate \
+.PHONY: help setup data lint format test test-e2e infra-up infra-down reset task1 ingest preprocess \
+	validate task2 train thresholds \
 	stream produce dashboard demo mock demo-mock
 
 help:  ## list targets
@@ -39,6 +40,17 @@ preprocess:  ## Task 1 step 3: Bronze -> Silver
 validate:  ## Task 1 step 4: check Silver against the data contract
 	$(PY) data_pipeline/validate_silver.py
 
+task2: train thresholds  ## Task 2 end to end on 100% of the electricity data (~4 min)
+
+# The final RF on the full train set needs more driver memory than the 6g default.
+train thresholds: SPARK_DRIVER_MEMORY = 10g
+
+train:  ## Task 2: final model + meter profile -> data/models
+	$(PY) ml_model/train_baseline.py --models rf --targets raw --sample 1 --save
+
+thresholds:  ## Task 2: injected anomaly test + per-meter thresholds -> data/models
+	$(PY) ml_model/evaluate.py --save meter_p99_3h
+
 lint:  ## check style
 	$(BIN)/ruff check .
 	$(BIN)/ruff format --check .
@@ -49,6 +61,10 @@ format:  ## auto-fix style
 
 test:  ## run all tests (exit code 5 = no tests collected yet)
 	$(BIN)/pytest || [ $$? -eq 5 ]
+
+test-e2e:  ## Kafka end-to-end tests (needs make infra-up); builds the mock inputs on first run
+	[ -d streaming/mock_data/meter_thresholds ] || $(PY) streaming/mock_inputs.py
+	$(BIN)/pytest streaming -m integration
 
 infra-up:  ## start Kafka (localhost:9094) and create the topic
 	$(COMPOSE) up -d --wait
