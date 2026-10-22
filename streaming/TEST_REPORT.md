@@ -1,5 +1,7 @@
 # Báo cáo kiểm thử — Task 3 Streaming
 
+> **Lưu ý:** báo cáo này dành cho phiên bản **trước khi tích hợp với `main`** (commit `16e3209`). Sau tích hợp, hợp đồng dữ liệu đã đổi (`meter_type`, hồ sơ đồng hồ, ngưỡng riêng, quy tắc 3 giờ), đường dẫn chuyển sang `data/` và `common/config.py`; trạng thái kiểm thử mới xem mục "Kiểm thử" trong `streaming/README.md`.
+
 Người kiểm thử độc lập (không viết code). Ngày chạy: **2026-10-18**, branch `feature/streaming` (commit `16e3209`).
 Các yêu cầu lấy từ `TASKS.md` (Task 3, mục 3 “Hợp đồng dữ liệu”), `docs/INTEGRATION_GUIDELINES.md` (mục 2: #4, #7, #9, #12) và `config.py`.
 

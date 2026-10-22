@@ -4,32 +4,35 @@ Kafka producer replay dữ liệu Silver (năm 2017) → Spark Structured Stream
 
 ```
 Silver (Delta) ──kafka_producer.py──▶ Kafka topic energy-readings ──streaming_job.py──▶ Gold (Delta)
- 19 thread, 1 thread/site, 3s/tick        JSON, key = building_id      model → baseline, residual, is_anomaly
+ 1 thread/site, 3s/tick, chỉ điện     JSON, key = building_id      hồ sơ + model → baseline, residual
+                                                                   → ngưỡng riêng + 3 giờ liền → is_anomaly
 ```
 
-| | Đường dẫn / hằng số (`config.py`) |
+| | Đường dẫn / hằng số (`common/config.py`) |
 |---|---|
-| Input dữ liệu replay | `CLEAN_DATA_PATH`, chỉ `timestamp >= TEST_START` |
-| Input model | `MODEL_PATH` (PipelineModel của Task 2, output cột `prediction`) |
+| Input dữ liệu replay | `CLEAN_DATA_PATH`, chỉ `timestamp >= TEST_START` và `ANOMALY_METER_TYPES` (điện) |
+| Input từ Task 2 | `MODEL_PATH` (PipelineModel, cột `prediction`), `METER_PROFILE_PATH` (hồ sơ đồng hồ), `METER_THRESHOLDS_PATH` (ngưỡng riêng) |
+| Quy tắc bất thường | `abs(residual) > baseline * anomaly_threshold` liên tục `ANOMALY_PERSISTENCE_HOURS` (3) giờ; thiếu ngưỡng → `THRESHOLD_RATIO` |
 | Kafka | `KAFKA_BOOTSTRAP` = `localhost:9094`, `KAFKA_TOPIC` = `energy-readings` |
 | Nhịp | `PRODUCER_INTERVAL_SEC` = 3, `SPARK_TRIGGER_SEC` = 5 |
-| Output | `ENERGY_RESULTS_PATH` = `streaming/output/energy_results`, partition `site_id`, schema `ENERGY_RESULTS_SCHEMA` |
-| Checkpoint | `ENERGY_RESULTS_CHECKPOINT` = `streaming/output/_checkpoints/energy_results` |
-| Số liệu từng batch | `streaming/output/batch_metrics.csv` |
+| Output | `ENERGY_RESULTS_PATH` = `data/gold/energy_results`, partition `site_id`, schema `ENERGY_RESULTS_SCHEMA` |
+| Checkpoint | `ENERGY_RESULTS_CHECKPOINT` = `data/checkpoints/energy_results` |
+| Số liệu từng batch | `data/gold/batch_metrics.csv` |
 
 ## File
 
 | File | Làm gì |
 |---|---|
-| `kafka_producer.py` | Đọc Silver theo từng site (`deltalake`), mỗi tick gửi tất cả tòa nhà của site tại cùng 1 giờ. Tạo đột biến cho live demo. |
-| `streaming_job.py` | Đọc Kafka → parse JSON → bỏ message lỗi → model → `baseline`, `residual`, `is_anomaly` → append Gold. Log + CSV mỗi batch. |
-| `spark_session.py` | SparkSession dùng chung: `local[*]`, Delta, Kafka connector, UTC, các chỉnh cho Windows. |
-| `mock_inputs.py` | Tạo Silver + model giả (đúng schema, đúng dạng Pipeline của Task 2) để chạy khi Task 1/2 chưa xong. |
+| `kafka_producer.py` | Đọc Silver theo từng site (`deltalake`, không cần JVM), chỉ đồng hồ điện; mỗi tick gửi mọi đồng hồ của site tại cùng 1 giờ. Tạo đột biến cho live demo. |
+| `streaming_job.py` | Đọc Kafka → parse JSON → bỏ message lỗi → `foreachBatch`: hồ sơ + model → `baseline`, `residual` → ngưỡng riêng → đọc lại 2 giờ trước từ Gold → `is_anomaly` → append Gold (idempotent). Log + CSV mỗi batch. |
+| `mock_inputs.py` | Tạo Silver giả + model, hồ sơ, ngưỡng **bằng chính code của Task 2**, nên mock có đúng dạng như thật. |
+
+SparkSession dùng chung ở `common/spark_session.py` (có sẵn các xử lý cho Windows và mạng VPN).
 
 ## Cài đặt
 
 ```bash
-pip install -r requirements.txt     # Python 3.11, Java 17
+make setup     # từ gốc repo: môi trường bdg2 (Python 3.11, Java 17) + extras spark, streaming
 ```
 
 **Windows:** Spark cần `winutils.exe` + `hadoop.dll` (bản Hadoop 3.4, ví dụ từ `kontext-tech/winutils`)
@@ -38,28 +41,24 @@ Thiếu thì script dừng ngay với thông báo rõ ràng.
 
 ## Chạy
 
-Mọi lệnh chạy trong thư mục `streaming/`, Kafka phải đang chạy:
+Mọi lệnh chạy từ **gốc repo**, Kafka phải đang chạy (`make infra-up`).
+
+> `infra/docker-compose.yml` trên `main` còn rỗng: compose Kafka của Nhật nằm ở nhánh `dev/task4`.
+> Trước khi nhánh đó được merge: `git show origin/dev/task4:dashboard/docker-compose.yml > infra/docker-compose.yml`.
+
+**Với dữ liệu thật** (cần `make task1` và `ml_model/train_baseline.py --save` + `ml_model/evaluate.py --save meter_p99_3h`):
 
 ```bash
-docker compose -f ../dashboard/docker-compose.yml up -d --wait
+python streaming/streaming_job.py                 # terminal 1, chờ dòng "streaming energy-readings ..."
+python streaming/kafka_producer.py --hours 48     # terminal 2, 48 giờ của 2017 = 48 tick x 3s
 ```
 
-> Compose file do Nhật viết, hiện nằm ở nhánh `dev/task4` (trên `main` còn rỗng). Trước khi PR đó được merge:
-> `git show origin/dev/task4:dashboard/docker-compose.yml > ../kafka-compose.yml` rồi dùng `-f ../kafka-compose.yml`.
-
-**Với dữ liệu thật** (cần Silver của Task 1 và model của Task 2):
+**Với dữ liệu giả:**
 
 ```bash
-python streaming_job.py                 # terminal 1, chờ dòng "streaming energy-readings ..."
-python kafka_producer.py --hours 48     # terminal 2, 48 giờ của 2017 = 48 tick x 3s
-```
-
-**Với dữ liệu giả** (khi Task 1/2 chưa bàn giao):
-
-```bash
-python mock_inputs.py                                         # 1 lần, ~1 phút
-python streaming_job.py --model mock_data/baseline_model
-python kafka_producer.py --silver mock_data/clean_data --hours 30
+python streaming/mock_inputs.py                                     # 1 lần, ~1 phút
+python streaming/streaming_job.py --model-dir streaming/mock_data
+python streaming/kafka_producer.py --silver streaming/mock_data/clean_data --hours 30
 ```
 
 Tùy chọn hay dùng (xem `--help`):
@@ -67,58 +66,64 @@ Tùy chọn hay dùng (xem `--help`):
 | Lệnh | Tùy chọn |
 |---|---|
 | `kafka_producer.py` | `--hours N` (mặc định cả năm 2017), `--start`, `--interval`, `--sites A B`, `--spike-count 2`, `--spike-after 10`, `--spike-factor 3`, `--verbose` |
-| `streaming_job.py` | `--model`, `--log-target` (model train trên `log1p`), `--trigger 5`, `--compact-every 60` |
+| `streaming_job.py` | `--model-dir` (thư mục chứa đủ 3 đầu ra Task 2), hoặc `--model` / `--profile` / `--thresholds` riêng; `--trigger 5`, `--compact-every 60` |
 
 **Chạy lại từ đầu** (Kafka không có volume, nên checkpoint và Gold phải xóa cùng lúc):
 
 ```bash
-docker compose -f ../dashboard/docker-compose.yml down
-rm -rf output/                      # Gold + checkpoint + batch_metrics.csv
-docker compose -f ../dashboard/docker-compose.yml up -d --wait
+make infra-down
+rm -rf data/gold data/checkpoints        # Gold + checkpoint + batch_metrics.csv
+make infra-up
 ```
 
 ## Quy ước xử lý
 
-- **`baseline = max(prediction, 0)`**: regression có thể dự đoán số kWh âm, khi đó `is_anomaly` sẽ luôn đúng.
-  Nếu model train trên `log1p(meter_reading)` thì chạy với `--log-target` (job sẽ áp `expm1`).
-- **`is_anomaly = abs(residual) > baseline * THRESHOLD_RATIO`**, ngưỡng import từ `config.py`.
-  Tòa nhà có baseline gần 0 sẽ báo động liên tục (thấy rõ ở `Panther_public_Tiny_Kiosk` trong mock).
-  Ngưỡng tối thiểu do Task 2 đề xuất (`INTEGRATION_GUIDELINES.md` mục 2, #12).
+- **Chỉ đồng hồ điện** (`ANOMALY_METER_TYPES`): các loại khác sai số ~100% nên không phát hiện bất thường được (số liệu ở `ml_model/README.md`). Producer chỉ gửi điện; job cũng lọc lại cho chắc.
+- **Hồ sơ đồng hồ**: gắn bằng `ml_model.meter_profile.add_profile_features()` trước khi gọi model. Đồng hồ không có lịch sử 2016 không có baseline và bị bỏ qua (đếm ở cột `rows` nhưng không ở `scored`).
+- **`baseline = max(prediction, 0)`**: regression có thể dự đoán số kWh âm. Model Task 2 (kể cả train trên `log1p`) đã trả `prediction` đúng đơn vị `meter_reading`, job không cần biến đổi gì.
+- **`is_anomaly`**: vượt **ngưỡng riêng của đồng hồ** liên tục **3 giờ** (`ANOMALY_PERSISTENCE_HOURS`). Giờ trước đó được **đọc lại từ chính bảng Gold**, nên restart job vẫn nhớ đúng mà không cần state store riêng. Thiếu 1 giờ thì chuỗi bị ngắt. Hệ quả cho demo: đột biến chỉ được cảnh báo từ giờ thứ 3 của nó.
 - **Message lỗi** (không phải JSON, thiếu field, sai kiểu): không làm job crash, bị bỏ qua và được đếm ở cột `invalid` trong log/CSV.
-- **Exactly-once**: Delta sink + checkpoint. Restart job (giữ `output/`) sẽ chạy tiếp từ offset cũ, không ghi trùng.
-- **Live demo spike** (khác injected-anomaly offline của Task 2): `--spike-count` tòa nhà tiêu thụ lớn nhất
-  nhân `meter_reading` với `--spike-factor` từ tick `--spike-after`. Tên các tòa nhà này được in ra khi chạy.
+- **Exactly-once**: checkpoint + ghi Delta idempotent (`txnAppId` + `txnVersion` = batch id). Batch bị chạy lại sau restart không ghi trùng.
+- **Live demo spike** (khác injected-anomaly offline của Task 2): `--spike-count` đồng hồ tiêu thụ lớn nhất nhân `meter_reading` với `--spike-factor` từ tick `--spike-after`. Tên các tòa nhà này được in ra khi chạy.
 - **File nhỏ**: mỗi `--compact-every` batch job chạy `OPTIMIZE` để dashboard đọc nhanh.
 
 ## Đọc log
 
 ```
-batch 14: 24 rows (0 invalid), 11 anomalies | 2.66s, 9 rows/s | max latency 7.1s
+batch 14: 1391 rows (0 invalid), 1391 scored, 3 anomalies | 3.66s, 380 rows/s | max latency 7.1s
 ```
 
-`rows/s` = số dòng / thời gian xử lý batch. `max latency` = từ lúc producer gửi bản ghi cũ nhất của batch
-đến lúc batch ghi xong vào Gold (gồm cả thời gian chờ trigger).
+`scored` = số dòng có baseline (điện, có hồ sơ). `rows/s` = số dòng / thời gian xử lý batch. `max latency` = từ lúc producer gửi bản ghi cũ nhất của batch đến lúc batch ghi xong vào Gold (gồm cả thời gian chờ trigger).
 
 ## Sự cố thường gặp
 
 | Triệu chứng | Nguyên nhân / cách xử lý |
 |---|---|
 | `HADOOP_HOME is not set` | Windows thiếu winutils, xem mục Cài đặt |
-| `Kafka not reachable` / `Topic ... does not exist` | Chưa `docker compose up`; topic do service `kafka-init` tạo |
-| Job lỗi offset sau khi `docker compose down/up` | Kafka đã mới nhưng checkpoint còn cũ → xóa `output/` |
-| Lần chạy đầu tiên chậm | Spark tải jar Delta + Kafka về `~/.ivy2-bdg2` (cần mạng, chỉ 1 lần). Các lần sau dùng jar đã có |
-| `ClassNotFoundException` / lỗi Jackson sau khi đổi version pyspark/delta-spark | Xóa thư mục `~/.ivy2-bdg2` để tải lại jar đúng version |
+| `Kafka not reachable` / `Topic ... does not exist` | Chưa `make infra-up`; topic do service khởi tạo trong compose tạo |
+| `Model not found` / `Meter profile not found` | Chưa train Task 2 với `--save`, hoặc dùng `--model-dir streaming/mock_data` |
+| Job lỗi offset sau khi `make infra-down/up` | Kafka đã mới nhưng checkpoint còn cũ → xóa `data/gold` và `data/checkpoints` |
+| Lần chạy đầu tiên chậm | Spark tải jar Delta + Kafka (cần mạng, chỉ 1 lần). Windows: lưu ở `~/.ivy2-bdg2/<hash>` |
+| `ClassNotFoundException` / lỗi Jackson sau khi đổi version pyspark/delta-spark | Windows: xóa `~/.ivy2-bdg2` để tải lại jar đúng version |
 | `ERROR ShutdownHookManager: Exception while deleting Spark temp dir` lúc tắt | Lỗi vô hại trên Windows (file bị khóa), bỏ qua |
-| Dashboard thấy dữ liệu cũ | `output/` của lần chạy trước còn đó → reset như trên |
+| Dashboard thấy dữ liệu cũ | `data/gold` của lần chạy trước còn đó → reset như trên |
+
+## Kiểm thử
+
+```bash
+pytest streaming -m "not integration"   # 41 test, không cần Kafka (~70 s)
+pytest streaming                        # + 14 test end-to-end, cần Kafka và mock_data
+```
+
+Sau khi tích hợp với `main` (thêm `meter_type`, hồ sơ, ngưỡng riêng, quy tắc 3 giờ): 41 test không cần Kafka đạt trên Linux. **14 test end-to-end chưa chạy lại** vì máy tích hợp không có Docker; cần chạy trên máy có Kafka. `TEST_REPORT.md` là báo cáo của phiên bản trước khi tích hợp.
 
 ## Số liệu quy mô
 
-| | Mock (12 tòa nhà, 3 site) | Dữ liệu thật |
+| | Mock (12 tòa nhà, 3 site) | Dữ liệu thật (đo bằng `BatchWriter`, không qua Kafka) |
 |---|---|---|
-| Bản ghi / tick | 12 | TODO |
-| Thời gian xử lý 1 batch | 2–3 s | TODO |
-| Độ trễ tối đa (gửi → Gold) | 4–10 s | TODO |
-| Throughput (bản ghi/giây) | ~4–12 (giới hạn bởi nhịp producer) | TODO |
+| Bản ghi / tick | 12 | ~1.390 đồng hồ điện (input ~2.730 nếu gửi cả 8 loại) |
+| Thời gian xử lý 1 batch (1 giờ dữ liệu) | 2–3 s | 3,3–4,7 s (batch đầu 7,6 s) |
+| Độ trễ tối đa (gửi → Gold) | 4–10 s | TODO (cần Kafka) |
+| Throughput (bản ghi/giây) | ~4–12 (giới hạn bởi nhịp producer) | ~300–400 |
 
-Cấu hình Spark: `local[*]`, `spark.driver.memory=4g`, `spark.sql.shuffle.partitions=8`,
-`spark.databricks.delta.snapshotPartitions=4`, trigger 5s. Máy: Windows 11, Java 17, pyspark 4.2.0, delta-spark 4.4.0.
+Cấu hình Spark: `local[*]`, `spark.driver.memory=6g`, `spark.sql.shuffle.partitions=8`, `spark.databricks.delta.snapshotPartitions=4`, trigger 5s. Đo trên Linux, 32 core, Java 17, pyspark 4.2.0, delta-spark 4.4.0.

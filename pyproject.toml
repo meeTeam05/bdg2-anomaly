@@ -18,6 +18,13 @@ spark = [
     "delta-spark==4.4.0",  # requires pyspark in [4.0.1, 4.2.0]
     "numpy==2.4.6",        # pyspark.ml needs it; 2.5+ requires Python 3.12
 ]
+# Task 3 extras on top of `spark`: Kafka client and Delta reads without the JVM (producer).
+streaming = [
+    "confluent-kafka==2.16.0",
+    "deltalake==1.6.6",
+    "pyarrow==26.0.0",
+    "tzdata==2026.5",  # pyarrow needs it for UTC timestamps on Windows
+]
 # Task 4 reads Delta with delta-rs, no Spark needed.
 dashboard = [
     "deltalake==1.6.6",
@@ -38,7 +45,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 # Task folders become packages as they get tests, e.g. `from data_pipeline.preprocess import ...`.
-include = ["common*", "data_pipeline*", "ml_model*"]
+include = ["common*", "data_pipeline*", "ml_model*", "streaming*"]
 
 [tool.ruff]
 line-length = 100
@@ -52,7 +59,7 @@ select = ["E", "W", "F", "I", "UP", "B", "N"]
 ignore = ["N812"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["common", "data_pipeline", "ml_model"]
+known-first-party = ["common", "data_pipeline", "ml_model", "streaming"]
 
 [tool.pytest.ini_options]
 testpaths = ["data_pipeline", "ml_model", "streaming", "dashboard"]

@@ -6,10 +6,11 @@ all its buildings at that hour, so all sites stay on the same replayed hour.
 Live-demo spike: the --spike-count biggest consumers get meter_reading x --spike-factor from
 tick --spike-after on (unlike the offline injected-anomaly test of Task 2).
 
-    python kafka_producer.py --hours 48                          # real Silver (Task 1)
-    python kafka_producer.py --silver mock_data/clean_data       # mock Silver (mock_inputs.py)
+    python streaming/kafka_producer.py --hours 48                                # real Silver
+    python streaming/kafka_producer.py --silver streaming/mock_data/clean_data   # mock Silver
 
-Reads Silver with deltalake (no JVM). The producer only plays the IoT devices; all processing
+Only ANOMALY_METER_TYPES are replayed: the job scores nothing else. Reads Silver with
+deltalake (no JVM). The producer only plays the IoT devices; all processing
 happens in Spark (streaming_job.py).
 """
 
@@ -19,7 +20,7 @@ import logging
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pyarrow as pa
@@ -27,10 +28,15 @@ import pyarrow.compute as pc
 from confluent_kafka import KafkaException, Producer
 from deltalake import DeltaTable
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
-from config import (  # noqa: E402
-    CLEAN_DATA_PATH, CLEAN_DATA_SCHEMA, KAFKA_BOOTSTRAP, KAFKA_TOPIC, PARTITION_COLUMN,
-    PRODUCER_INTERVAL_SEC, TEST_START,
+from common.config import (
+    ANOMALY_METER_TYPES,
+    CLEAN_DATA_PATH,
+    CLEAN_DATA_SCHEMA,
+    KAFKA_BOOTSTRAP,
+    KAFKA_TOPIC,
+    PARTITION_COLUMN,
+    PRODUCER_INTERVAL_SEC,
+    TEST_START,
 )
 
 log = logging.getLogger("kafka_producer")
@@ -41,22 +47,29 @@ SILVER_COLUMNS = [name for name, _ in CLEAN_DATA_SCHEMA]
 def parse_utc(text):
     """'2017-01-01 00:00:00' (taken as UTC) or with an explicit offset -> aware UTC datetime."""
     ts = datetime.fromisoformat(text)
-    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts.astimezone(UTC)
 
 
 def load_site(table, site, start, hours):
-    """Readings of one site in [start, start + hours), as a pyarrow Table."""
+    """Readings of one site in [start, start + hours) of ANOMALY_METER_TYPES, as a pyarrow Table."""
     end = start + timedelta(hours=hours)
     return table.to_pyarrow_table(
         columns=SILVER_COLUMNS,
-        filters=[(PARTITION_COLUMN, "=", site), ("timestamp", ">=", start), ("timestamp", "<", end)],
+        filters=[
+            (PARTITION_COLUMN, "=", site),
+            ("meter_type", "in", ANOMALY_METER_TYPES),
+            ("timestamp", ">=", start),
+            ("timestamp", "<", end),
+        ],
     )
 
 
 def rows_at(site_table, ts):
     """All rows of a site table at one timestamp, as dicts (empty list if the hour is missing)."""
     ts_type = site_table.schema.field("timestamp").type
-    return site_table.filter(pc.equal(site_table["timestamp"], pa.scalar(ts, type=ts_type))).to_pylist()
+    return site_table.filter(
+        pc.equal(site_table["timestamp"], pa.scalar(ts, type=ts_type))
+    ).to_pylist()
 
 
 def pick_spike_buildings(site_tables, count):
@@ -64,7 +77,11 @@ def pick_spike_buildings(site_tables, count):
     clearly above the threshold, while one on a near-zero baseline proves nothing."""
     if count <= 0:
         return set()
-    means = pa.concat_tables(site_tables.values()).group_by("building_id").aggregate([("meter_reading", "mean")])
+    means = (
+        pa.concat_tables(site_tables.values())
+        .group_by("building_id")
+        .aggregate([("meter_reading", "mean")])
+    )
     top = means.sort_by([("meter_reading_mean", "descending")]).slice(0, count)
     return set(top["building_id"].to_pylist())
 
@@ -127,9 +144,12 @@ def check_topic(producer, topic):
     try:
         metadata = producer.list_topics(topic, timeout=10)
     except KafkaException as e:
-        sys.exit(f"Kafka not reachable ({e}). Start it: docker compose -f dashboard/docker-compose.yml up -d --wait")
+        sys.exit(f"Kafka not reachable ({e}). Start it: make infra-up")
     if metadata.topics[topic].error is not None:
-        sys.exit(f"Topic '{topic}' does not exist (auto-create is off). It is created by kafka-init in the compose file.")
+        sys.exit(
+            f"Topic '{topic}' does not exist (auto-create is off). "
+            "It is created by the topic-init service in infra/docker-compose.yml."
+        )
 
 
 def parse_args():
@@ -150,10 +170,15 @@ def parse_args():
 
 def main():
     args = parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s [%(threadName)s]: %(message)s")
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s [%(threadName)s]: %(message)s",
+    )
     if not Path(args.silver).exists():
-        sys.exit(f"Silver table not found: {args.silver}. Run data_pipeline/ or create a mock: python mock_inputs.py")
+        sys.exit(
+            f"Silver table not found: {args.silver}. Run make task1 or create a mock: "
+            "python streaming/mock_inputs.py"
+        )
 
     producer = Producer({"bootstrap.servers": args.bootstrap, "linger.ms": 50})
     check_topic(producer, args.topic)
@@ -164,17 +189,32 @@ def main():
     loaded = time.time()
     site_tables = {site: load_site(table, site, start, args.hours) for site in sites}
     total = sum(t.num_rows for t in site_tables.values())
-    log.info("loaded %d rows, %d sites, %d hours from %s in %.1fs",
-             total, len(sites), args.hours, args.start, time.time() - loaded)
+    log.info(
+        "loaded %d rows, %d sites, %d hours from %s in %.1fs",
+        total,
+        len(sites),
+        args.hours,
+        args.start,
+        time.time() - loaded,
+    )
     spike_buildings = pick_spike_buildings(site_tables, args.spike_count)
     if spike_buildings:
-        log.info("spike x%.1f from tick %d on: %s", args.spike_factor, args.spike_after, sorted(spike_buildings))
+        log.info(
+            "spike x%.1f from tick %d on: %s",
+            args.spike_factor,
+            args.spike_after,
+            sorted(spike_buildings),
+        )
 
     stats, stop = Stats(), threading.Event()
     t0 = time.monotonic()
     threads = [
-        threading.Thread(target=replay_site, name=f"site-{site}", daemon=True,
-                         args=(site, site_tables[site], producer, args, start, spike_buildings, t0, stats, stop))
+        threading.Thread(
+            target=replay_site,
+            name=f"site-{site}",
+            daemon=True,
+            args=(site, site_tables[site], producer, args, start, spike_buildings, t0, stats, stop),
+        )
         for site in sites
     ]
     for t in threads:
@@ -182,7 +222,13 @@ def main():
     try:
         while alive := [t for t in threads if t.is_alive()]:
             alive[0].join(args.interval * 5)
-            log.info("tick %d/%d: %d sent, %d failed", stats.tick + 1, args.hours, stats.sent, stats.failed)
+            log.info(
+                "tick %d/%d: %d sent, %d failed",
+                stats.tick + 1,
+                args.hours,
+                stats.sent,
+                stats.failed,
+            )
     except KeyboardInterrupt:
         log.info("stopping (Ctrl+C)")
         stop.set()

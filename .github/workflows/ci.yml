@@ -28,6 +28,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
-      - run: pip install -e ".[spark,dashboard,dev]"
+      - run: pip install -e ".[spark,streaming,dashboard,dev]"
       # Exit code 5 = no tests collected yet; not a failure.
       - run: pytest || [ $? -eq 5 ]
