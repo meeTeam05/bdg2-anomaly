@@ -105,6 +105,15 @@ PRODUCER_INTERVAL_SEC = 3
 SPARK_TRIGGER_SEC = 5
 DASHBOARD_REFRESH_SEC = 5
 
+# Task 4 dashboard (reads Gold with delta-rs, no Spark).
+# Each refresh reads only the last DASHBOARD_WINDOW_HOURS of replayed time: Delta file
+# statistics skip older files, so a refresh costs the same after 1 hour or 1 year of stream.
+DASHBOARD_WINDOW_HOURS = 168
+# Stale = no new data seen for a meter within this many seconds (dashboard wall clock).
+STALE_AFTER_SEC = 30
+TOP_N = 50  # rows in the meter table, most urgent first
+EVENT_LOG_LIMIT = 100  # latest anomaly records in the event log
+
 
 def to_spark_struct_type(schema):
     """Convert a schema list above into pyspark.sql.types.StructType.

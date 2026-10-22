@@ -1,0 +1,58 @@
+# Shared infra for the whole team: Kafka only (KRaft, no Zookeeper, no Spark container).
+# KRaft: Kafka 4.x has no Zookeeper mode. Spark runs local[*] on the host (common/spark_session.py),
+# which reaches Kafka on localhost:9094 and reads/writes data/ directly.
+#
+#   Inside Docker : kafka:9092
+#   From the host : localhost:9094   (common/config.py KAFKA_BOOTSTRAP)
+#
+# No volume on purpose: every `up` is a fresh demo run. Use `make reset` so that Kafka,
+# the Spark checkpoint and the Gold table are reset together.
+name: bdg2-anomaly
+
+services:
+  kafka:
+    image: apache/kafka:4.2.0
+    container_name: bdg2-kafka
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  # One-shot: create the topic, then exit. Keep the name in sync with common/config.py KAFKA_TOPIC.
+  kafka-init:
+    image: apache/kafka:4.2.0
+    container_name: bdg2-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    command:
+      - /opt/kafka/bin/kafka-topics.sh
+      - --bootstrap-server
+      - kafka:9092
+      - --create
+      - --if-not-exists
+      - --topic
+      - energy-readings
+      - --partitions
+      - "1"
+      - --replication-factor
+      - "1"

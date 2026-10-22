@@ -27,8 +27,10 @@ streaming = [
 ]
 # Task 4 reads Delta with delta-rs, no Spark needed.
 dashboard = [
+    "streamlit==1.66.0",
     "deltalake==1.6.6",
     "pyarrow==26.0.0",
+    "pandas==2.3.3",
 ]
 # Exploration notebooks (notebooks/): Spark aggregates -> pandas -> charts.
 notebook = [
@@ -45,7 +47,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 # Task folders become packages as they get tests, e.g. `from data_pipeline.preprocess import ...`.
-include = ["common*", "data_pipeline*", "ml_model*", "streaming*"]
+include = ["common*", "data_pipeline*", "ml_model*", "streaming*", "dashboard*"]
 
 [tool.ruff]
 line-length = 100
@@ -58,8 +60,12 @@ select = ["E", "W", "F", "I", "UP", "B", "N"]
 # N812: `from pyspark.sql import functions as F` is the standard PySpark idiom.
 ignore = ["N812"]
 
+[tool.ruff.lint.per-file-ignores]
+# One CSS rule per line in GLOBAL_CSS reads better than wrapped rules.
+"dashboard/view.py" = ["E501"]
+
 [tool.ruff.lint.isort]
-known-first-party = ["common", "data_pipeline", "ml_model", "streaming"]
+known-first-party = ["common", "data_pipeline", "ml_model", "streaming", "dashboard"]
 
 [tool.pytest.ini_options]
 testpaths = ["data_pipeline", "ml_model", "streaming", "dashboard"]

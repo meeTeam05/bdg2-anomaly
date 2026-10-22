@@ -63,7 +63,7 @@ bdg2-anomaly/
 │   ├── tests/
 │   └── README.md
 ├── dashboard/               ← Nhật
-│   ├── dashboard.py
+│   ├── app.py               (Streamlit; logic.py = dữ liệu, view.py = HTML/biểu đồ)
 │   ├── tests/
 │   └── README.md
 ├── infra/                   ← Nhật (dùng chung)
@@ -73,7 +73,7 @@ bdg2-anomaly/
 ├── docs/                    ← chung: TASKS.md, INTEGRATION_GUIDELINES.md, báo cáo, slide
 ├── .github/workflows/ci.yml ← CI: ruff + pytest cho mỗi PR
 ├── pyproject.toml           ← metadata, dependencies (extras theo task), cấu hình ruff/pytest
-├── Makefile                 ← lệnh tắt: make setup / data / lint / test / infra-up
+├── Makefile                 ← lệnh tắt: make setup / data / task1 / lint / test / infra-up / stream / produce / dashboard
 └── README.md                ← tổng quan cả repo
 ```
 
@@ -130,13 +130,13 @@ bdg2-anomaly/
 ### Task 4 — Dashboard & Hạ tầng (Nhật)
 **Input:** `data/gold/energy_results` (từ Task 3, cho phần dashboard)
 **Việc làm:**
-- `infra/docker-compose.yml`: Kafka + Zookeeper + Spark (dùng chung cho cả nhóm) — **xem mục 5, phần này phải làm và merge SỚM, không đợi đến lượt Task 4 mới bắt đầu**. Cấp đủ RAM cho Spark để chạy được toàn bộ dataset.
+- `infra/docker-compose.yml`: Kafka (KRaft, không cần Zookeeper) dùng chung cho cả nhóm — **xem mục 5, phần này phải làm và merge SỚM, không đợi đến lượt Task 4 mới bắt đầu**. Spark không chạy trong container mà chạy `local[*]` trên máy (`common/spark_session.py`, RAM chỉnh bằng `SPARK_DRIVER_MEMORY`) để đọc/ghi thẳng `data/`.
 - Dashboard (Streamlit) đọc Delta Lake, tự refresh. Vì có ~1.600 tòa nhà, dashboard phải tổ chức theo tầng:
   - **Tổng quan:** số tòa nhà đang giám sát, số bất thường theo site, throughput.
   - **Top-N tòa nhà bất thường** gần nhất.
   - **Chi tiết 1 tòa nhà** (chọn theo site → building): biểu đồ thực tế vs baseline, log sự kiện.
 - Chỉ đọc phần dữ liệu cần thiết (lọc theo partition `site_id` / khoảng thời gian), không load toàn bảng mỗi lần refresh.
-**Output bắt buộc:** `docker compose up` chạy được hạ tầng; `streamlit run dashboard.py` xem được tại `localhost:8501`
+**Output bắt buộc:** `make infra-up` (`docker compose up`) chạy được hạ tầng; `make dashboard` (`streamlit run dashboard/app.py`) xem được tại `localhost:8501`
 **Done khi:** Cả nhóm demo thử end-to-end không lỗi.
 
 ---
@@ -202,11 +202,11 @@ bdg2-anomaly/
 
 ## 5. Thứ tự hoàn thành
 
-**Lưu ý quan trọng:** thứ tự dưới đây nói về thứ tự **bàn giao dữ liệu/model**, KHÔNG phải thứ tự bắt đầu code. Phần hạ tầng Docker (`infra/docker-compose.yml` — Kafka, Zookeeper, Spark) tuy nằm trong Task 4 nhưng phải được **Nhật làm và merge sớm nhất, ngay từ đầu**, vì Nguyên (Task 3) cần Kafka + Spark chạy được mới test được code streaming của mình.
+**Lưu ý quan trọng:** thứ tự dưới đây nói về thứ tự **bàn giao dữ liệu/model**, KHÔNG phải thứ tự bắt đầu code. Phần hạ tầng Docker (`infra/docker-compose.yml` — Kafka) tuy nằm trong Task 4 nhưng phải được **Nhật làm và merge sớm nhất, ngay từ đầu**, vì Nguyên (Task 3) cần Kafka chạy được mới test được code streaming của mình.
 
 ```
 Ngay từ đầu (song song với Task 1):
-  Nhật ──▶ viết & merge docker-compose.yml (Kafka + Zookeeper + Spark) TRƯỚC TIÊN
+  Nhật ──▶ viết & merge docker-compose.yml (Kafka) TRƯỚC TIÊN
 
 Thứ tự bàn giao dữ liệu/model:
   Task 1 (Hưng): Bronze ──▶ Silver

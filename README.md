@@ -17,7 +17,7 @@ Mục tiêu: xây dựng hoàn chỉnh 1 pipeline Big Data end-to-end bằng Spa
  [Silver] Delta — clean_data                     [Gold] Delta — energy_results
      │  ml_model/train_baseline.py (MLlib)             │
      ▼                                                 ▼
- PipelineModel (baseline_model) ───────────────▶ Dashboard (dashboard/dashboard.py)
+ PipelineModel (baseline_model) ───────────────▶ Dashboard (dashboard/app.py)
 ```
 
 ## Cấu trúc repo
@@ -29,7 +29,7 @@ Mục tiêu: xây dựng hoàn chỉnh 1 pipeline Big Data end-to-end bằng Spa
 | `ml_model/` | Train + đánh giá model baseline (Spark MLlib) | Mai |
 | `streaming/` | Kafka producer + Spark Structured Streaming → Gold | Nguyên |
 | `dashboard/` | Streamlit dashboard | Nhật |
-| `infra/` | `docker-compose.yml` — hạ tầng dùng chung (Kafka) | Nhật |
+| `infra/` | `docker-compose.yml` — hạ tầng dùng chung (Kafka KRaft) | Nhật |
 | `notebooks/` | Notebook khám phá dữ liệu (EDA) | Hưng |
 | `data/` | Dữ liệu thô, bảng Delta, checkpoint, model — **không commit** | — |
 | `docs/` | `TASKS.md` (phân công, hợp đồng dữ liệu), `INTEGRATION_GUIDELINES.md`, báo cáo | Chung |
@@ -48,13 +48,17 @@ make data                   # tải toàn bộ BDG2 (~370 MB) vào data/raw/
 ## Chạy end-to-end
 
 ```bash
-make infra-up                          # Kafka
 make task1                             # Task 1: CSV -> Bronze -> Silver -> kiểm tra (~3-4 phút)
-python ml_model/train_baseline.py      # Silver -> model
-python streaming/streaming_job.py      # Kafka -> model -> Gold
-python streaming/kafka_producer.py     # replay Silver (2017) vào Kafka
-streamlit run dashboard/dashboard.py   # http://localhost:8501
+SPARK_DRIVER_MEMORY=10g python ml_model/train_baseline.py --save   # Task 2: model + hồ sơ
+SPARK_DRIVER_MEMORY=10g python ml_model/evaluate.py --save meter_p99_3h   # ngưỡng riêng
+make infra-up                          # Kafka (localhost:9094) + topic
+make stream                            # terminal 1: Kafka -> model -> Gold
+make produce HOURS=48                  # terminal 2: replay 48 giờ đầu 2017 vào Kafka
+make dashboard                         # terminal 3: http://localhost:8501
 ```
+
+Chạy lại demo từ đầu: `make reset` (Kafka, bảng Gold và checkpoint phải xóa cùng lúc). Chỉ xem
+dashboard với dữ liệu giả, không cần Kafka/Spark: `make demo-mock`.
 
 ## Phát triển
 

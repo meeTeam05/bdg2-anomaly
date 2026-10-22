@@ -23,7 +23,7 @@ Bổ sung cho `docs/TASKS.md`: chuẩn kỹ thuật dùng chung + các điểm c
 | `pyproject.toml` | metadata project + **toàn bộ dependency** (extras `spark`, `dashboard`, `dev`) + cấu hình ruff, pytest. Thay cho `requirements-spark.txt` và các `requirements.txt` riêng |
 | `common/config.py` | đường dẫn mọi tầng, tất cả nằm trong `data/` (`RAW_DATA_DIR`, `BRONZE_DIR`, `CLEAN_DATA_PATH`, `MODEL_PATH`, `ENERGY_RESULTS_PATH`, `ENERGY_RESULTS_CHECKPOINT`; đổi thư mục gốc bằng biến môi trường `BDG2_DATA_DIR`), `PARTITION_COLUMN = "site_id"`, `TEST_START`, `METER_PROFILE_PATH`, `METER_THRESHOLDS_PATH`, `ANOMALY_METER_TYPES`, `THRESHOLD_RATIO = 0.28` (dự phòng), `ANOMALY_PERSISTENCE_HOURS = 3`, `TIMEZONE = "UTC"`, `CLEAN_DATA_SCHEMA` (Task1→2,3, có `site_id`), `ENERGY_RESULTS_SCHEMA` (Task3→4), `to_spark_struct_type()` |
 | `common/spark_session.py` | `build_spark(app_name, extra_packages=None)`: `local[*]`, Delta Lake, timezone UTC, driver memory 6g (đổi bằng `SPARK_DRIVER_MEMORY`). Streaming truyền Kafka connector qua `extra_packages` |
-| `Makefile` | `make setup` / `data` / `lint` / `format` / `test` / `infra-up` / `infra-down` |
+| `Makefile` | `make setup` / `data` / `task1` / `lint` / `format` / `test` / `infra-up` / `infra-down` / `reset` / `stream` / `produce` / `dashboard` / `demo-mock` |
 | `.pre-commit-config.yaml`, `.github/workflows/ci.yml` | ruff + kiểm tra file lớn khi commit; CI chạy ruff + pytest cho mỗi PR |
 
 **Cài đặt và import** (repo là 1 package Python, không dùng `sys.path`):
@@ -45,10 +45,12 @@ spark = build_spark("train_baseline")
 
 | Thành phần | Chốt |
 |---|---|
-| Zookeeper / Kafka | `bitnami/zookeeper`, `bitnami/kafka:4.2` |
-| Spark | `apache/spark:4.2.0` (Bitnami hết tag Spark khả dụng) |
+| Kafka | `apache/kafka:4.2.0`, KRaft, không Zookeeper (tag Bitnami `kafka:4.2`/`zookeeper` không còn trên Docker Hub) |
+| Spark | không có container; chạy `local[*]` trên host (`common/spark_session.py`) |
 | Kafka listener | dual: `kafka:9092` nội bộ + `EXTERNAL` advertise `localhost:9094` |
-| `streaming_job.py` / `kafka_producer.py` | chạy trên host, nối `spark://localhost:7077` + `localhost:9094` |
+| Kafka topic | `energy-readings`, 1 partition, tạo bởi service `kafka-init`; hằng số `KAFKA_TOPIC`, `KAFKA_BOOTSTRAP` trong `common/config.py` |
+| `streaming_job.py` / `kafka_producer.py` | chạy trên host, `local[*]`, nối Kafka qua `localhost:9094` |
+| Kafka không có volume | mỗi lần `up` là 1 phiên demo mới; `make reset` xóa cùng lúc Kafka, `data/gold` và `data/checkpoints` |
 | Dashboard đọc Delta Lake | `deltalake` (delta-rs), không cần Spark — an toàn vì write pattern append-only |
 | Auto-refresh dashboard | `st.fragment(run_every=...)` (Streamlit ≥1.33) |
 
@@ -60,11 +62,11 @@ spark = build_spark("train_baseline")
 |---|---|---|---|
 | 1 | ~~Task 1 output: Parquet hay Delta?~~ | — | **Đã chốt:** mọi bảng là Delta (Bronze/Silver/Gold), xem `docs/TASKS.md` mục 3 |
 | 2 | ~~Danh sách `building_id` (30-50 tòa Office)~~ | — | **Đã chốt:** dùng toàn bộ tòa nhà; Task 3 tự đọc danh sách từ `clean_data` (giai đoạn test 2017) |
-| 3 | `docker-compose.yml` cần merge sớm, khác thứ tự 1→2→3→4 ở mục 5 `docs/TASKS.md` | Nguyên bị block chờ Task 4 dù lẽ ra làm sau | Cả nhóm xác nhận: PR docker-compose merge trước, tách khỏi thứ tự chung |
-| 4 | Checkpoint cho Spark Structured Streaming: vị trí đã chốt `data/checkpoints/energy_results` | Restart job gây duplicate/mất bản ghi, log dashboard sai | Giữ hay xoá checkpoint khi restart |
+| 3 | ~~`docker-compose.yml` cần merge sớm~~ | — | **Đã xong:** `infra/docker-compose.yml` (Kafka KRaft) đã ở `main` |
+| 4 | ~~Checkpoint cho Spark Structured Streaming~~ | — | **Đã chốt:** `data/checkpoints/energy_results`; restart job thì giữ (ghi Delta idempotent, không trùng); demo mới thì `make reset` xóa cùng Kafka và Gold |
 | 5 | Ranh giới "injected anomaly" (Task 2, offline) vs "kịch bản tăng đột biến" (Task 3, live demo) | Trùng công sức hoặc lệch định nghĩa anomaly giữa 2 bên | Xác nhận đây là 2 việc tách biệt hay dùng chung 1 kịch bản |
 | 6 | Ownership review cho file dùng chung (`common/`, `infra/`, `pyproject.toml`) | Ai cũng sửa tự do, vỡ chuẩn vừa chốt ở mục 1 | Bắt buộc bao nhiêu người review khi các file này đổi |
-| 7 | Nhịp thời gian: Kafka producer (2-3s), Spark trigger interval, dashboard refresh chưa khớp nhau | Demo giật, hiển thị lệch nhịp dữ liệu thật | Chốt số giây cụ thể cho cả 3 tầng |
+| 7 | ~~Nhịp thời gian producer / Spark / dashboard~~ | — | **Đã chốt:** 3s / 5s / 5s (`PRODUCER_INTERVAL_SEC`, `SPARK_TRIGGER_SEC`, `DASHBOARD_REFRESH_SEC` trong `common/config.py`) |
 | 8 | ~~Partitioning cho `clean_data` / `energy_results`~~ | — | **Đã chốt:** cả 2 bảng partition theo `site_id` (cột `site_id` đã thêm vào schema trong `common/config.py`) |
 | 9 | Xử lý message lỗi/trễ trong Kafka consumer chưa có quy ước | Streaming job crash hoặc âm thầm mất data | Crash, skip, hay log riêng khi gặp message sai schema/trễ |
 | 10 | Chưa có runbook end-to-end cho buổi demo | Lần đầu chạy full pipeline rơi đúng hôm bảo vệ mới lộ lỗi tích hợp | Ai viết `docs/RUNBOOK.md`, viết trước deadline nào |

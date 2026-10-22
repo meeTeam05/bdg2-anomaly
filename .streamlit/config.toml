@@ -1,0 +1,10 @@
+# Applies when Streamlit is started from this folder (cd dashboard).
+[theme]
+base = "light"
+primaryColor = "#1b2228"
+backgroundColor = "#f4f5f4"
+secondaryBackgroundColor = "#eef1ef"
+textColor = "#14181c"
+
+[server]
+headless = true   # no first-run email prompt; open http://localhost:8501 yourself

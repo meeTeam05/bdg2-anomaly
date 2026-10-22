@@ -17,6 +17,9 @@ data/
 *.csv
 *.parquet
 
+# Dashboard mock Gold table (make mock)
+dashboard/.mock_output/
+
 # Spark / Delta local artifacts
 spark-warehouse/
 metastore_db/

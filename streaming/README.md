@@ -41,10 +41,7 @@ Thiếu thì script dừng ngay với thông báo rõ ràng.
 
 ## Chạy
 
-Mọi lệnh chạy từ **gốc repo**, Kafka phải đang chạy (`make infra-up`).
-
-> `infra/docker-compose.yml` trên `main` còn rỗng: compose Kafka của Nhật nằm ở nhánh `dev/task4`.
-> Trước khi nhánh đó được merge: `git show origin/dev/task4:dashboard/docker-compose.yml > infra/docker-compose.yml`.
+Mọi lệnh chạy từ **gốc repo**, Kafka phải đang chạy (`make infra-up`, compose ở `infra/docker-compose.yml`).
 
 **Với dữ liệu thật** (cần `make task1` và `ml_model/train_baseline.py --save` + `ml_model/evaluate.py --save meter_p99_3h`):
 
@@ -68,12 +65,12 @@ Tùy chọn hay dùng (xem `--help`):
 | `kafka_producer.py` | `--hours N` (mặc định cả năm 2017), `--start`, `--interval`, `--sites A B`, `--spike-count 2`, `--spike-after 10`, `--spike-factor 3`, `--verbose` |
 | `streaming_job.py` | `--model-dir` (thư mục chứa đủ 3 đầu ra Task 2), hoặc `--model` / `--profile` / `--thresholds` riêng; `--trigger 5`, `--compact-every 60` |
 
+Lối tắt cho 2 lệnh dữ liệu thật ở trên: `make stream` và `make produce HOURS=48`.
+
 **Chạy lại từ đầu** (Kafka không có volume, nên checkpoint và Gold phải xóa cùng lúc):
 
 ```bash
-make infra-down
-rm -rf data/gold data/checkpoints        # Gold + checkpoint + batch_metrics.csv
-make infra-up
+make reset    # infra-down + rm -rf data/gold data/checkpoints + infra-up
 ```
 
 ## Quy ước xử lý
@@ -102,11 +99,11 @@ batch 14: 1391 rows (0 invalid), 1391 scored, 3 anomalies | 3.66s, 380 rows/s | 
 | `HADOOP_HOME is not set` | Windows thiếu winutils, xem mục Cài đặt |
 | `Kafka not reachable` / `Topic ... does not exist` | Chưa `make infra-up`; topic do service khởi tạo trong compose tạo |
 | `Model not found` / `Meter profile not found` | Chưa train Task 2 với `--save`, hoặc dùng `--model-dir streaming/mock_data` |
-| Job lỗi offset sau khi `make infra-down/up` | Kafka đã mới nhưng checkpoint còn cũ → xóa `data/gold` và `data/checkpoints` |
+| Job lỗi offset sau khi `make infra-down/up` | Kafka đã mới nhưng checkpoint còn cũ → `make reset` |
 | Lần chạy đầu tiên chậm | Spark tải jar Delta + Kafka (cần mạng, chỉ 1 lần). Windows: lưu ở `~/.ivy2-bdg2/<hash>` |
 | `ClassNotFoundException` / lỗi Jackson sau khi đổi version pyspark/delta-spark | Windows: xóa `~/.ivy2-bdg2` để tải lại jar đúng version |
 | `ERROR ShutdownHookManager: Exception while deleting Spark temp dir` lúc tắt | Lỗi vô hại trên Windows (file bị khóa), bỏ qua |
-| Dashboard thấy dữ liệu cũ | `data/gold` của lần chạy trước còn đó → reset như trên |
+| Dashboard thấy dữ liệu cũ | `data/gold` của lần chạy trước còn đó → `make reset` |
 
 ## Kiểm thử
 

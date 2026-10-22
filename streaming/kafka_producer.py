@@ -148,7 +148,7 @@ def check_topic(producer, topic):
     if metadata.topics[topic].error is not None:
         sys.exit(
             f"Topic '{topic}' does not exist (auto-create is off). "
-            "It is created by the topic-init service in infra/docker-compose.yml."
+            "It is created by the kafka-init service in infra/docker-compose.yml."
         )
 
 
